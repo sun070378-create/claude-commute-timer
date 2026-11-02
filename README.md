@@ -1,5 +1,7 @@
 # 通勤碼表
 
+> 這個專案由 [Claude Code](https://claude.com/claude-code) 協助製作。
+
 讓大家自己記錄搭淡海輕軌、安坑輕軌、台北捷運時的**等車、乘車、轉乘**時間，集中起來統計出真實的通勤時間。
 
 ## 怎麼用？
@@ -41,8 +43,7 @@ anon key 本來就是設計給網頁公開使用的；資料表已設定成「�
 
 ## 放上網路（GitHub Pages，免費）
 
-1. 把程式推到 GitHub 的 `main` 分支
-2. 到 repo 的 **Settings → Pages**，Source 選 **Deploy from a branch**，Branch 選 `main`、資料夾選 `/ (root)`，按 Save
-3. 等一兩分鐘，網址會是 `https://<你的帳號>.github.io/<repo 名稱>/commute/`
+1. 到 repo 的 **Settings → Pages**，Source 選 **Deploy from a branch**，Branch 選 `main`、資料夾選 `/ (root)`，按 Save
+2. 等一兩分鐘，網址會是 <https://sun070378-create.github.io/claude-commute-timer/>
 
 把這個網址傳給朋友，或在 PTT、Dcard、臉書社團分享，大家就能一起記錄了。手機瀏覽器選「加入主畫面」，用起來就像 App。
