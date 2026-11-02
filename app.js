@@ -578,16 +578,18 @@ $("discard").addEventListener("click", () => {
 // =========================================================
 // 資料庫（Supabase REST API）
 // =========================================================
+// 網址填成 https://xxx.supabase.co 或 https://xxx.supabase.co/rest/v1/ 都可以
+const API_BASE = SUPABASE_URL.replace(/\/+$/, "").replace(/\/rest\/v1$/, "") + "/rest/v1";
+
 function apiHeaders() {
-  return {
-    apikey: SUPABASE_ANON_KEY,
-    Authorization: "Bearer " + SUPABASE_ANON_KEY,
-    "Content-Type": "application/json",
-  };
+  const headers = { apikey: SUPABASE_ANON_KEY, "Content-Type": "application/json" };
+  // 舊式 anon key（eyJ 開頭）才需要放進 Authorization；新式 sb_publishable_ 只要 apikey 就夠
+  if (SUPABASE_ANON_KEY.startsWith("eyJ")) headers.Authorization = "Bearer " + SUPABASE_ANON_KEY;
+  return headers;
 }
 
 async function insertTrip(record) {
-  const res = await fetch(SUPABASE_URL + "/rest/v1/trips", {
+  const res = await fetch(API_BASE + "/trips", {
     method: "POST",
     headers: { ...apiHeaders(), Prefer: "return=minimal" },
     body: JSON.stringify(record),
@@ -598,7 +600,7 @@ async function insertTrip(record) {
 async function fetchTrips() {
   if (!ONLINE) return store.get("history", []);
   const cols = "started_at,origin,destination,time_band,total_sec,wait_sec,ride_sec,transfer_sec,transfers,note";
-  const res = await fetch(`${SUPABASE_URL}/rest/v1/trips?select=${cols}&order=started_at.desc&limit=5000`, {
+  const res = await fetch(`${API_BASE}/trips?select=${cols}&order=started_at.desc&limit=5000`, {
     headers: apiHeaders(),
   });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
