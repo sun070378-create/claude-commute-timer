@@ -14,9 +14,16 @@ create table if not exists public.trips (
   transfer_sec  integer not null check (transfer_sec >= 0),
   transfers     smallint not null check (transfers between 0 and 10),
   segments      jsonb not null,
+  -- 到站（出門→起點站月台）與離站（終點站→目的地）：每個人住的地方不同，不列入車站到車站的統計
+  access_mode   text check (access_mode in ('walk', 'bike', 'youbike', 'scooter', 'car', 'bus')),
+  access_sec    integer check (access_sec between 0 and 7200),
+  egress_mode   text check (egress_mode in ('walk', 'bike', 'youbike', 'scooter', 'car', 'bus')),
+  egress_sec    integer check (egress_sec between 0 and 7200),
   note          text check (char_length(note) <= 200),
   client_id     text not null check (char_length(client_id) <= 64),
   check (wait_sec + ride_sec + transfer_sec = total_sec),
+  check ((access_mode is null) = (access_sec is null)),
+  check ((egress_mode is null) = (egress_sec is null)),
   check (started_at > now() - interval '2 days' and started_at < now() + interval '10 minutes')
 );
 
