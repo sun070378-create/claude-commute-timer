@@ -105,34 +105,139 @@ document.querySelectorAll(".tab").forEach((t) => t.addEventListener("click", () 
 // =========================================================
 // 一、設定起訖點
 // =========================================================
-function fillStationSelect(select) {
-  for (const line of LINES) {
-    const group = el("optgroup", { label: line.name });
-    for (const s of line.stations) group.append(el("option", { value: s, textContent: s }));
-    select.append(group);
+// 每個站經過哪些路線，例如 "紅樹林" → [綠山線, 淡水信義線]
+const STATION_LINES = new Map();
+for (const line of LINES) {
+  for (const s of line.stations) {
+    if (!STATION_LINES.has(s)) STATION_LINES.set(s, []);
+    STATION_LINES.get(s).push(line);
   }
 }
-fillStationSelect($("origin"));
-fillStationSelect($("destination"));
 
-const lastRoute = store.get("lastRoute", { origin: "紅樹林", destination: "台北車站" });
-$("origin").value = lastRoute.origin;
-$("destination").value = lastRoute.destination;
+// 黃色、淺色的路線配白字看不清楚，改用深色字
+function textColorOn(hex) {
+  const n = parseInt(hex.slice(1), 16);
+  const lum = 0.299 * (n >> 16) + 0.587 * ((n >> 8) & 255) + 0.114 * (n & 255);
+  return lum > 150 ? "#1f2a33" : "#ffffff";
+}
+
+function lineTag(line) {
+  const tag = el("span", { className: "line-tag", textContent: line.short, title: line.name });
+  tag.style.background = line.color;
+  tag.style.color = textColorOn(line.color);
+  return tag;
+}
+
+// 站名加上它所屬路線的小標籤；exceptLine 用來在路線清單裡省略自己那條線
+function stationLabel(name, exceptLine) {
+  const lines = STATION_LINES.get(name).filter((l) => l !== exceptLine);
+  return [el("span", { className: "station-name", textContent: name }), ...lines.map(lineTag)];
+}
+
+const route = store.get("lastRoute", { origin: "紅樹林", destination: "台北車站" });
+
+function renderRoute() {
+  $("origin").replaceChildren(...stationLabel(route.origin));
+  $("destination").replaceChildren(...stationLabel(route.destination));
+}
+renderRoute();
 
 $("swap").addEventListener("click", () => {
-  const o = $("origin").value;
-  $("origin").value = $("destination").value;
-  $("destination").value = o;
+  [route.origin, route.destination] = [route.destination, route.origin];
+  renderRoute();
 });
 
+// ---------- 選站視窗 ----------
+const picker = { target: "origin", line: null };
+
+function openPicker(target) {
+  picker.target = target;
+  picker.line = null;
+  $("picker-title").textContent = target === "origin" ? "選擇起點站" : "選擇終點站";
+  $("picker-search").value = "";
+  renderPicker();
+  $("picker").showModal();
+}
+
+function choose(name) {
+  route[picker.target] = name;
+  renderRoute();
+  $("picker").close();
+}
+
+function stationRow(name, exceptLine) {
+  const b = el("button", { type: "button", className: "row" }, stationLabel(name, exceptLine));
+  if (name === route[picker.target]) b.classList.add("selected");
+  b.addEventListener("click", () => choose(name));
+  return b;
+}
+
+function renderPicker() {
+  const q = $("picker-search").value.trim().replace(/站$/, "");
+  const body = $("picker-body");
+  $("picker-back").style.visibility = picker.line && !q ? "visible" : "hidden";
+
+  // 有輸入搜尋字：直接列出所有符合的站
+  if (q) {
+    const hits = [...STATION_LINES.keys()].filter((s) => s.includes(q));
+    body.replaceChildren(
+      ...(hits.length ? hits.map((s) => stationRow(s)) : [el("p", { className: "hint", textContent: "找不到這個站名" })])
+    );
+    return;
+  }
+
+  // 第二層：某條路線的所有車站
+  if (picker.line) {
+    const head = el("p", { className: "picker-line-head" }, [lineTag(picker.line), " " + picker.line.name]);
+    body.replaceChildren(head, ...picker.line.stations.map((s) => stationRow(s, picker.line)));
+    body.scrollTop = 0;
+    return;
+  }
+
+  // 第一層：最近使用的站 + 路線列表
+  const parts = [];
+  const recent = store.get("recentStations", []).filter((s) => STATION_LINES.has(s));
+  if (recent.length) {
+    parts.push(el("p", { className: "picker-section", textContent: "最近使用" }));
+    parts.push(
+      el("div", { className: "chips" }, recent.map((s) => {
+        const c = el("button", { type: "button", className: "chip", textContent: s });
+        c.addEventListener("click", () => choose(s));
+        return c;
+      }))
+    );
+  }
+  parts.push(el("p", { className: "picker-section", textContent: "依路線選擇" }));
+  for (const line of LINES) {
+    const b = el("button", { type: "button", className: "row" }, [
+      lineTag(line),
+      el("span", { className: "station-name", textContent: line.name }),
+      el("span", { className: "row-meta", textContent: `${line.stations.length} 站 ›` }),
+    ]);
+    b.addEventListener("click", () => { picker.line = line; renderPicker(); });
+    parts.push(b);
+  }
+  body.replaceChildren(...parts);
+  body.scrollTop = 0;
+}
+
+$("origin").addEventListener("click", () => openPicker("origin"));
+$("destination").addEventListener("click", () => openPicker("destination"));
+$("picker-search").addEventListener("input", renderPicker);
+$("picker-back").addEventListener("click", () => { picker.line = null; renderPicker(); });
+$("picker-close").addEventListener("click", () => $("picker").close());
+// 點視窗外面的灰色區域也能關閉
+$("picker").addEventListener("click", (e) => { if (e.target === $("picker")) $("picker").close(); });
+
 $("start").addEventListener("click", () => {
-  const origin = $("origin").value;
-  const destination = $("destination").value;
+  const { origin, destination } = route;
   if (origin === destination) {
     alert("起點和終點不能是同一站");
     return;
   }
   store.set("lastRoute", { origin, destination });
+  const recent = [origin, destination, ...store.get("recentStations", [])];
+  store.set("recentStations", [...new Set(recent)].slice(0, 8));
   // events：每一段開始的時間點，例如 [{type:"wait", t:...}, {type:"ride", t:...}]
   trip = { origin, destination, events: [], endedAt: null };
   saveTrip();

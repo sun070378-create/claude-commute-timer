@@ -23,15 +23,15 @@
     <!-- ===== 記錄：一、設定起訖點 ===== -->
     <section id="view-setup" class="view">
       <h2>這趟從哪到哪？</h2>
-      <label class="field">
+      <div class="field">
         <span>起點站</span>
-        <select id="origin"></select>
-      </label>
+        <button id="origin" class="station-field" type="button"></button>
+      </div>
       <button id="swap" class="link-btn" type="button">⇅ 對調</button>
-      <label class="field">
+      <div class="field">
         <span>終點站</span>
-        <select id="destination"></select>
-      </label>
+        <button id="destination" class="station-field" type="button"></button>
+      </div>
       <button id="start" class="big-btn primary" type="button">準備出發</button>
       <p class="hint">進站後到了月台再按「開始等車」。過程中可以關掉螢幕或切到別的 App，時間會照算。</p>
     </section>
@@ -99,6 +99,17 @@
       <ol id="history-list" class="history"></ol>
     </section>
   </main>
+
+  <!-- ===== 選站視窗：先選路線，再選車站；也可以直接搜尋 ===== -->
+  <dialog id="picker" class="picker">
+    <div class="picker-head">
+      <button id="picker-back" class="icon-btn" type="button" aria-label="回到路線列表">‹</button>
+      <h2 id="picker-title">選擇起點站</h2>
+      <button id="picker-close" class="icon-btn" type="button" aria-label="關閉">✕</button>
+    </div>
+    <input id="picker-search" class="picker-search" type="search" placeholder="搜尋站名，例如：紅樹林" autocomplete="off">
+    <div id="picker-body" class="picker-body"></div>
+  </dialog>
 
   <script src="config.js"></script>
   <script src="stations.js"></script>
