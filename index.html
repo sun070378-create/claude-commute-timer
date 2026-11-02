@@ -22,7 +22,13 @@
 
     <!-- ===== 記錄：一、設定起訖點 ===== -->
     <section id="view-setup" class="view">
-      <h2>這趟從哪到哪？</h2>
+      <!-- 常用路線：有存過才會出現，一張卡片包含去程和回程 -->
+      <div id="saved-wrap" hidden>
+        <h2>常用路線</h2>
+        <div id="saved-list"></div>
+        <h3>或選擇其他路線</h3>
+      </div>
+      <h2 id="setup-title">這趟從哪到哪？</h2>
       <div class="field">
         <span>起點站</span>
         <button id="origin" class="station-field" type="button"></button>
@@ -32,7 +38,26 @@
         <span>終點站</span>
         <button id="destination" class="station-field" type="button"></button>
       </div>
+      <!-- 進階選項：平常收起來，需要時再展開 -->
+      <details id="more" class="more">
+        <summary>更多選項：到站／離站方式 <span id="more-summary" class="more-summary"></span></summary>
+        <div class="field">
+          <span id="access-label"></span>
+          <div id="access-modes" class="chips"></div>
+        </div>
+        <div class="field">
+          <span id="egress-label"></span>
+          <div id="egress-modes" class="chips"></div>
+        </div>
+        <p class="hint">選了之後，碼表會多出「前往車站」或「前往目的地」一段。這兩段因人而異，不列入大家的車站到車站統計。</p>
+      </details>
       <button id="start" class="big-btn primary" type="button">準備出發</button>
+      <button id="save-route" class="link-btn" type="button">☆ 把這條路線存成常用路線</button>
+      <div id="save-form" class="save-form" hidden>
+        <input id="route-name" type="text" maxlength="12" placeholder="名稱，例如：通勤">
+        <button id="save-confirm" class="small-btn" type="button">儲存</button>
+      </div>
+      <p class="hint">存起來之後，去程和回程都能一鍵出發，到站／離站方式也會一起記住。</p>
       <p class="hint">進站後到了月台再按「開始等車」。過程中可以關掉螢幕或切到別的 App，時間會照算。</p>
     </section>
 
@@ -55,10 +80,11 @@
 
     <!-- ===== 記錄：三、結果確認 ===== -->
     <section id="view-summary" class="view" hidden>
-      <h2>這趟花了 <span id="sum-total"></span></h2>
+      <h2><span id="sum-title">這趟花了</span> <span id="sum-total"></span></h2>
       <p class="route"><span id="sum-route"></span></p>
       <div id="sum-bar" class="stack-bar"></div>
       <ul id="sum-parts" class="legend"></ul>
+      <p id="sum-door" class="hint" hidden></p>
       <label class="field">
         <span>備註（選填，例如：遇到延誤、下大雨）</span>
         <input id="note" type="text" maxlength="200">

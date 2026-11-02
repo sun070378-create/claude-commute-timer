@@ -27,6 +27,8 @@
 }
 
 * { box-sizing: border-box; }
+/* 確保加了 hidden 的元素一定隱藏，不會被 display: flex 等設定蓋掉 */
+[hidden] { display: none !important; }
 
 body {
   margin: 0;
@@ -72,7 +74,7 @@ h3 { font-size: 16px; margin: 28px 0 8px; }
 }
 
 .field { display: block; margin-bottom: 14px; }
-.field span { display: block; font-size: 14px; color: var(--muted); margin-bottom: 4px; }
+.field > span { display: block; font-size: 14px; color: var(--muted); margin-bottom: 4px; }
 .field select, .field input {
   width: 100%;
   padding: 12px;
@@ -293,5 +295,60 @@ h3 { font-size: 16px; margin: 28px 0 8px; }
   background: var(--card);
   border: 1px solid var(--line);
   border-radius: 999px;
+  cursor: pointer;
+}
+
+/* 到站、離站的顏色 */
+:root { --access: #2a9d8f; }
+.big-btn.access { background: var(--access); color: #fff; }
+.timeline li.access, .timeline li.egress { border-left-color: var(--access); }
+.stack-bar .access, .stack-bar .egress { background: var(--access); }
+.dot.access, .dot.egress { background: var(--access); }
+.chip.selected { background: var(--primary); border-color: var(--primary); color: var(--primary-text); }
+
+/* 更多選項 */
+.more {
+  margin: 4px 0 8px;
+  padding: 10px 12px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+.more summary { cursor: pointer; font-size: 15px; }
+.more[open] summary { margin-bottom: 12px; }
+.more-summary { color: var(--primary); font-weight: 600; }
+
+/* 常用路線 */
+.saved-card {
+  padding: 8px 12px 10px;
+  margin-bottom: 12px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+.saved-head { display: flex; align-items: center; justify-content: space-between; }
+.icon-btn.small { width: 36px; height: 36px; font-size: 16px; color: var(--muted); }
+.saved-go { background: var(--bg); }
+.saved-modes { width: 100%; font-size: 13px; color: var(--muted); }
+
+.save-form { display: flex; gap: 8px; margin: 4px 0 8px; }
+.save-form input {
+  flex: 1;
+  min-width: 0;
+  padding: 10px 12px;
+  font: inherit;
+  color: var(--text);
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+.small-btn {
+  padding: 10px 18px;
+  font: inherit;
+  font-weight: 600;
+  color: var(--primary-text);
+  background: var(--primary);
+  border: none;
+  border-radius: 10px;
   cursor: pointer;
 }

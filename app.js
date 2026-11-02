@@ -7,7 +7,13 @@ const PHASES = {
   wait: { label: "等車中", cls: "wait" },
   ride: { label: "乘車中", cls: "ride" },
   transfer: { label: "轉乘步行中", cls: "transfer" },
+  access: { label: "前往車站中", cls: "access" },
+  egress: { label: "前往目的地中", cls: "egress" },
 };
+// 到站、離站的交通方式（代碼要和 supabase/schema.sql 裡的一致）
+const MODES = { walk: "步行", bike: "腳踏車", youbike: "YouBike", scooter: "機車", car: "開車", bus: "公車" };
+// 車站到車站的部分，大家的資料會一起統計；到站、離站只出現在自己的紀錄
+const STATION_TYPES = ["wait", "ride", "transfer"];
 const BAND_LABELS = { peak: "平日尖峰", offpeak: "平日離峰", weekend: "假日" };
 const ONLINE = Boolean(SUPABASE_URL && SUPABASE_ANON_KEY);
 
@@ -134,16 +140,19 @@ function stationLabel(name, exceptLine) {
   return [el("span", { className: "station-name", textContent: name }), ...lines.map(lineTag)];
 }
 
-const route = store.get("lastRoute", { origin: "紅樹林", destination: "台北車站" });
+// 舊版存的 lastRoute 沒有到站／離站方式，補成 null
+const route = { accessMode: null, egressMode: null, ...store.get("lastRoute", { origin: "紅樹林", destination: "台北車站" }) };
+if (route.accessMode || route.egressMode) $("more").open = true;
 
 function renderRoute() {
   $("origin").replaceChildren(...stationLabel(route.origin));
   $("destination").replaceChildren(...stationLabel(route.destination));
+  renderModes();
 }
 renderRoute();
 
 $("swap").addEventListener("click", () => {
-  [route.origin, route.destination] = [route.destination, route.origin];
+  Object.assign(route, reversed(route));
   renderRoute();
 });
 
@@ -229,20 +238,106 @@ $("picker-close").addEventListener("click", () => $("picker").close());
 // 點視窗外面的灰色區域也能關閉
 $("picker").addEventListener("click", (e) => { if (e.target === $("picker")) $("picker").close(); });
 
-$("start").addEventListener("click", () => {
-  const { origin, destination } = route;
-  if (origin === destination) {
+// ---------- 到站／離站方式 ----------
+function renderModes() {
+  for (const [key, boxId] of [["accessMode", "access-modes"], ["egressMode", "egress-modes"]]) {
+    const options = [[null, "不計"], ...Object.entries(MODES)];
+    $(boxId).replaceChildren(
+      ...options.map(([v, label]) => {
+        const c = el("button", { type: "button", className: "chip" + (route[key] === v ? " selected" : ""), textContent: label });
+        c.addEventListener("click", () => { route[key] = v; renderModes(); });
+        return c;
+      })
+    );
+  }
+  // 「台北車站」本身已經有「站」字，不要變成「台北車站站」
+  const withZhan = (s) => (s.endsWith("站") ? s : s + "站");
+  $("access-label").textContent = `怎麼到${withZhan(route.origin)}？`;
+  $("egress-label").textContent = `從${withZhan(route.destination)}出站後，怎麼到目的地？`;
+  $("more-summary").textContent = modesText(route);
+}
+
+// 例如「腳踏車到站・步行離站」
+function modesText(r) {
+  return [r.accessMode && MODES[r.accessMode] + "到站", r.egressMode && MODES[r.egressMode] + "離站"]
+    .filter(Boolean).join("・");
+}
+
+// 反方向：起訖對調，到站和離站的方式也跟著交換（上班騎車到站 = 下班騎車回家）
+function reversed(r) {
+  return { origin: r.destination, destination: r.origin, accessMode: r.egressMode, egressMode: r.accessMode };
+}
+
+// ---------- 常用路線 ----------
+function renderSaved() {
+  const saved = store.get("savedRoutes", []);
+  $("saved-wrap").hidden = !saved.length;
+  $("setup-title").hidden = Boolean(saved.length);
+
+  const dirButton = (r) => {
+    const b = el("button", { type: "button", className: "row saved-go" }, [
+      el("span", { className: "station-name", textContent: `${r.origin} → ${r.destination}` }),
+      el("span", { className: "row-meta", textContent: "出發 ›" }),
+    ]);
+    const m = modesText(r);
+    if (m) b.append(el("span", { className: "saved-modes", textContent: m }));
+    b.addEventListener("click", () => startTrip(r));
+    return b;
+  };
+
+  $("saved-list").replaceChildren(
+    ...saved.map((s, i) => {
+      const del = el("button", { type: "button", className: "icon-btn small", textContent: "✕", ariaLabel: "刪除" });
+      del.addEventListener("click", () => {
+        if (!confirm(`刪除常用路線「${s.name}」？`)) return;
+        saved.splice(i, 1);
+        store.set("savedRoutes", saved);
+        renderSaved();
+      });
+      return el("div", { className: "saved-card" }, [
+        el("div", { className: "saved-head" }, [el("b", { textContent: s.name }), del]),
+        dirButton(s),
+        dirButton(reversed(s)),
+      ]);
+    })
+  );
+}
+
+$("save-route").addEventListener("click", () => {
+  $("save-form").hidden = !$("save-form").hidden;
+  if (!$("save-form").hidden) $("route-name").focus();
+});
+
+$("save-confirm").addEventListener("click", () => {
+  if (route.origin === route.destination) {
     alert("起點和終點不能是同一站");
     return;
   }
-  store.set("lastRoute", { origin, destination });
-  const recent = [origin, destination, ...store.get("recentStations", [])];
+  const name = $("route-name").value.trim() || `${route.origin} ↔ ${route.destination}`;
+  const saved = store.get("savedRoutes", []);
+  saved.push({ name, ...route });
+  store.set("savedRoutes", saved);
+  $("route-name").value = "";
+  $("save-form").hidden = true;
+  renderSaved();
+  window.scrollTo(0, 0);
+});
+
+function startTrip(r) {
+  if (r.origin === r.destination) {
+    alert("起點和終點不能是同一站");
+    return;
+  }
+  store.set("lastRoute", r);
+  const recent = [r.origin, r.destination, ...store.get("recentStations", [])];
   store.set("recentStations", [...new Set(recent)].slice(0, 8));
   // events：每一段開始的時間點，例如 [{type:"wait", t:...}, {type:"ride", t:...}]
-  trip = { origin, destination, events: [], endedAt: null };
+  trip = { ...r, events: [], endedAt: null };
   saveTrip();
   showView("track");
-});
+}
+
+$("start").addEventListener("click", () => startTrip({ ...route }));
 
 // =========================================================
 // 二、碼表
@@ -258,16 +353,25 @@ function currentPhase() {
 // 每個階段可以按的按鈕
 function actionsFor(phase) {
   switch (phase) {
-    case null: return [{ text: "到月台了，開始等車", next: "wait", cls: "wait" }];
+    case null: return trip.accessMode
+      ? [
+        { text: `出門了，${MODES[trip.accessMode]}前往車站`, next: "access", cls: "access" },
+        { text: "已經在月台了，開始等車", next: "wait", cls: "wait" },
+      ]
+      : [{ text: "到月台了，開始等車", next: "wait", cls: "wait" }];
+    case "access": return [{ text: "到月台了，開始等車", next: "wait", cls: "wait" }];
     case "wait": return [{ text: "上車了", next: "ride", cls: "ride" }];
     case "ride": return [
       { text: "下車，要轉乘", next: "transfer", cls: "transfer" },
-      { text: "抵達終點", next: "end", cls: "finish" },
+      trip.egressMode
+        ? { text: `出站了，${MODES[trip.egressMode]}前往目的地`, next: "egress", cls: "access" }
+        : { text: "抵達終點", next: "end", cls: "finish" },
     ];
     case "transfer": return [
       { text: "到轉乘月台，開始等車", next: "wait", cls: "wait" },
       { text: "車剛好在月台，直接上車", next: "ride", cls: "ride" },
     ];
+    case "egress": return [{ text: "到達目的地", next: "end", cls: "finish" }];
   }
 }
 
@@ -329,7 +433,8 @@ function tick() {
   const phase = currentPhase();
   const segs = segmentsOf(trip, now);
 
-  $("phase-label").textContent = phase ? PHASES[phase].label : "還沒開始，到月台後按下面的按鈕";
+  const idle = trip.accessMode ? "還沒開始，出門時按下面的按鈕" : "還沒開始，到月台後按下面的按鈕";
+  $("phase-label").textContent = phase ? PHASES[phase].label : idle;
   $("phase-timer").textContent = phase ? fmt(segs[segs.length - 1].sec) : "0:00";
   $("total-timer").textContent = phase ? fmt((now - trip.events[0].t) / 1000) : "0:00";
 
@@ -352,7 +457,9 @@ document.addEventListener("visibilitychange", tick);
 function buildRecord(t) {
   const segments = segmentsOf(t, t.endedAt);
   const sum = (type) => segments.filter((s) => s.type === type).reduce((a, s) => a + s.sec, 0);
-  const started = new Date(t.events[0].t);
+  // 時段以進到車站的時間為準，不含在家門口出發的時間
+  const first = t.events.find((e) => STATION_TYPES.includes(e.type)) || t.events[0];
+  const started = new Date(first.t);
   const band = timeBand(started);
   const wait = sum("wait");
   const ride = sum("ride");
@@ -369,6 +476,11 @@ function buildRecord(t) {
     transfer_sec: transfer,
     transfers: segments.filter((s) => s.type === "transfer").length,
     segments,
+    // 這趟沒有按到站／離站，就算原本有設定方式也記成空的
+    access_mode: segments.some((s) => s.type === "access") ? t.accessMode : null,
+    access_sec: segments.some((s) => s.type === "access") ? sum("access") : null,
+    egress_mode: segments.some((s) => s.type === "egress") ? t.egressMode : null,
+    egress_sec: segments.some((s) => s.type === "egress") ? sum("egress") : null,
     note: null,
     client_id: clientId(),
   };
@@ -400,12 +512,18 @@ function renderLegend(container, parts, format = fmt) {
 function renderSummary() {
   const r = buildRecord(trip);
   const parts = [
+    { type: "access", sec: r.access_sec },
     { type: "wait", sec: r.wait_sec },
     { type: "ride", sec: r.ride_sec },
     { type: "transfer", sec: r.transfer_sec },
-  ];
+    { type: "egress", sec: r.egress_sec },
+  ].filter((p) => p.sec !== null);
   $("sum-total").textContent = fmt(r.total_sec);
   $("sum-route").textContent = `${r.origin} → ${r.destination}・${BAND_LABELS[r.time_band]}・轉乘 ${r.transfers} 次`;
+  const door = r.total_sec + (r.access_sec || 0) + (r.egress_sec || 0);
+  $("sum-door").hidden = door === r.total_sec;
+  $("sum-title").textContent = door === r.total_sec ? "這趟花了" : "車站到車站花了";
+  $("sum-door").textContent = `加上到站、離站，出門到抵達共 ${fmt(door)}。到站、離站時間不列入大家的車站到車站統計。`;
   renderStackBar($("sum-bar"), parts);
   renderLegend($("sum-parts"), parts);
   $("submit-msg").textContent = "";
@@ -620,7 +738,13 @@ function renderHistory() {
         `${r.origin} → ${r.destination}　${fmt(r.total_sec)}`,
         el("span", {
           className: "meta",
-          textContent: `${new Date(r.started_at).toLocaleString("zh-TW")}・等 ${fmt(r.wait_sec)}・乘 ${fmt(r.ride_sec)}・轉 ${fmt(r.transfer_sec)}${r.note ? "・" + r.note : ""}`,
+          textContent: [
+            new Date(r.started_at).toLocaleString("zh-TW"),
+            r.access_mode && `${MODES[r.access_mode]}到站 ${fmt(r.access_sec)}`,
+            `等 ${fmt(r.wait_sec)}`, `乘 ${fmt(r.ride_sec)}`, `轉 ${fmt(r.transfer_sec)}`,
+            r.egress_mode && `${MODES[r.egress_mode]}離站 ${fmt(r.egress_sec)}`,
+            r.note,
+          ].filter(Boolean).join("・"),
         }),
       ])
     )
@@ -632,4 +756,5 @@ if (!ONLINE) {
   $("mode-banner").hidden = false;
   $("mode-banner").textContent = "目前是本機模式：紀錄只存在這台裝置，統計也只看得到自己的。設定資料庫後就能和大家一起統計。";
 }
+renderSaved();
 showView("record");
