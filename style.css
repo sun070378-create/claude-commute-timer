@@ -352,3 +352,4 @@ h3 { font-size: 16px; margin: 28px 0 8px; }
   border-radius: 10px;
   cursor: pointer;
 }
+.seg-time { margin-left: 8px; color: var(--muted); font-weight: 400; }

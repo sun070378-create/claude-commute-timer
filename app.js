@@ -403,12 +403,17 @@ $("cancel").addEventListener("click", () => {
   showView("record");
 });
 
-// 把事件換算成一段一段的時間
+// 把事件換算成一段一段的時間；at 是這一段開始的確切時間，之後可以拿來和時刻表比對
 function segmentsOf(t, endAt) {
   return t.events.map((e, i) => {
     const end = i + 1 < t.events.length ? t.events[i + 1].t : endAt;
-    return { type: e.type, sec: Math.round((end - e.t) / 1000) };
+    return { type: e.type, at: new Date(e.t).toISOString(), sec: Math.round((end - e.t) / 1000) };
   });
+}
+
+// 例如「07:36」，一律顯示台北時間
+function clockTime(iso) {
+  return new Date(iso).toLocaleTimeString("zh-TW", { timeZone: "Asia/Taipei", hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
 }
 
 function renderTrack() {
@@ -441,7 +446,7 @@ function tick() {
   $("timeline").replaceChildren(
     ...segs.map((s, i) =>
       el("li", { className: PHASES[s.type].cls + (i === segs.length - 1 ? " current" : "") }, [
-        el("span", { textContent: PHASES[s.type].label.replace("中", "") }),
+        el("span", {}, [PHASES[s.type].label.replace("中", ""), el("small", { className: "seg-time", textContent: clockTime(s.at) })]),
         el("span", { textContent: fmt(s.sec) }),
       ])
     )
@@ -519,7 +524,7 @@ function renderSummary() {
     { type: "egress", sec: r.egress_sec },
   ].filter((p) => p.sec !== null);
   $("sum-total").textContent = fmt(r.total_sec);
-  $("sum-route").textContent = `${r.origin} → ${r.destination}・${BAND_LABELS[r.time_band]}・轉乘 ${r.transfers} 次`;
+  $("sum-route").textContent = `${clockTime(r.started_at)} ${r.origin} → ${r.destination}・${BAND_LABELS[r.time_band]}・轉乘 ${r.transfers} 次`;
   const door = r.total_sec + (r.access_sec || 0) + (r.egress_sec || 0);
   $("sum-door").hidden = door === r.total_sec;
   $("sum-title").textContent = door === r.total_sec ? "這趟花了" : "車站到車站花了";
@@ -739,7 +744,7 @@ function renderHistory() {
         el("span", {
           className: "meta",
           textContent: [
-            new Date(r.started_at).toLocaleString("zh-TW"),
+            new Date(r.started_at).toLocaleString("zh-TW", { timeZone: "Asia/Taipei" }),
             r.access_mode && `${MODES[r.access_mode]}到站 ${fmt(r.access_sec)}`,
             `等 ${fmt(r.wait_sec)}`, `乘 ${fmt(r.ride_sec)}`, `轉 ${fmt(r.transfer_sec)}`,
             r.egress_mode && `${MODES[r.egress_mode]}離站 ${fmt(r.egress_sec)}`,
