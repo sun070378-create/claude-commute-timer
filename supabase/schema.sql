@@ -29,7 +29,12 @@ create table if not exists public.trips (
 
 create index if not exists trips_od_idx on public.trips (origin, destination);
 
--- 開啟列層級安全：匿名使用者只能新增和讀取，不能修改或刪除別人的資料。
+-- 權限：先全部收回，再只開放「讀取」和「新增」給網站使用的 anon 身分。
+-- 不管建立專案時有沒有勾 Automatically expose new tables，結果都一樣，也不會有修改、刪除的權限。
+revoke all on public.trips from anon, authenticated;
+grant select, insert on public.trips to anon;
+
+-- 開啟列層級安全（第二道防線）：匿名使用者只能新增和讀取，不能修改或刪除別人的資料。
 alter table public.trips enable row level security;
 
 drop policy if exists "anyone can insert" on public.trips;
