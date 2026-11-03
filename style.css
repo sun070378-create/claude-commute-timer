@@ -353,3 +353,22 @@ h3 { font-size: 16px; margin: 28px 0 8px; }
   cursor: pointer;
 }
 .seg-time { margin-left: 8px; color: var(--muted); font-weight: 400; }
+.timeline li.past { opacity: 0.55; }
+
+/* 確認畫面的轉乘資訊 */
+.transfer-row {
+  padding: 10px 12px;
+  margin-bottom: 10px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+.transfer-head { display: flex; align-items: center; margin-bottom: 8px; }
+.transfer-row .station-field { margin-bottom: 8px; font-size: 16px; min-height: 44px; }
+.placeholder { color: var(--muted); }
+
+/* 個人路線比較 */
+#my-band { margin-bottom: 12px; }
+.my-card { margin-bottom: 12px; }
+.my-card .band-table td:first-child { white-space: normal; }
+.my-card .band-table th { white-space: nowrap; font-size: 12px; }
