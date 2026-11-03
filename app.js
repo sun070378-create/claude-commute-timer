@@ -559,7 +559,7 @@ $("submit").addEventListener("click", async () => {
     trip = null;
     saveTrip();
     $("note").value = "";
-    alert(ONLINE ? "已送出，謝謝你提供數據！" : "已存到這台裝置（本機模式）");
+    alert(ONLINE ? "已送出，謝謝你提供數據！同一條路線累積 5 筆以上，就會出現在統計頁。" : "已存到這台裝置（本機模式）");
     showView("stats");
     selectPair(r.origin, r.destination);
   } catch (err) {
@@ -594,46 +594,72 @@ async function insertTrip(record) {
     headers: { ...apiHeaders(), Prefer: "return=minimal" },
     body: JSON.stringify(record),
   });
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  if (!res.ok) {
+    // 資料庫自訂的錯誤（例如「送出太頻繁了」）直接顯示中文訊息，其他的顯示狀態碼
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.code === "P0001" ? body.message : `HTTP ${res.status}`);
+  }
 }
 
-async function fetchTrips() {
-  if (!ONLINE) return store.get("history", []);
-  const cols = "started_at,origin,destination,time_band,total_sec,wait_sec,ride_sec,transfer_sec,transfers,note";
-  const res = await fetch(`${API_BASE}/trips?select=${cols}&order=started_at.desc&limit=5000`, {
-    headers: apiHeaders(),
-  });
+// 統計結果的格式：每條路線每個時段一列，time_band 為 "all" 的是不分時段的合計
+async function fetchStats() {
+  if (!ONLINE) return computeStats(store.get("history", []));
+  const res = await fetch(API_BASE + "/rpc/trip_stats", { headers: apiHeaders() });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return res.json();
+}
+
+// 本機模式：用自己的紀錄算出和資料庫 trip_stats() 一樣格式的結果（自己的資料不設最少筆數）
+function computeStats(trips) {
+  const groups = new Map();
+  for (const t of trips) {
+    for (const band of ["all", t.time_band]) {
+      const k = `${t.origin}\n${t.destination}\n${band}`;
+      if (!groups.has(k)) groups.set(k, []);
+      groups.get(k).push(t);
+    }
+  }
+  return [...groups.entries()].map(([k, list]) => {
+    const [origin, destination, time_band] = k.split("\n");
+    const col = (name) => list.map((t) => t[name]);
+    return {
+      origin, destination, time_band, n: list.length,
+      total_p25: percentile(col("total_sec"), 0.25),
+      total_p50: median(col("total_sec")),
+      total_p75: percentile(col("total_sec"), 0.75),
+      wait_p50: median(col("wait_sec")),
+      ride_p50: median(col("ride_sec")),
+      transfer_p50: median(col("transfer_sec")),
+    };
+  });
 }
 
 // =========================================================
 // 統計
 // =========================================================
-let allTrips = [];
+let stats = [];
 const pairKey = (o, d) => `${o}→${d}`;
+const statOf = (k, band) => stats.find((r) => pairKey(r.origin, r.destination) === k && r.time_band === band);
 
 async function loadStats() {
   $("stats-body").replaceChildren(el("p", { className: "hint", textContent: "載入中…" }));
   try {
-    allTrips = await fetchTrips();
+    stats = await fetchStats();
   } catch (err) {
     $("stats-body").replaceChildren(el("p", { className: "hint", textContent: "讀取資料失敗：" + err.message }));
     return;
   }
 
   // 依筆數排序路線
-  const counts = new Map();
-  for (const t of allTrips) {
-    const k = pairKey(t.origin, t.destination);
-    counts.set(k, (counts.get(k) || 0) + 1);
-  }
-  const pairs = [...counts.entries()].sort((a, b) => b[1] - a[1]);
+  const pairs = stats
+    .filter((r) => r.time_band === "all")
+    .sort((a, b) => b.n - a.n)
+    .map((r) => [pairKey(r.origin, r.destination), r.n]);
 
   const select = $("stats-pair");
   const prev = select.value;
   select.replaceChildren(...pairs.map(([k, n]) => el("option", { value: k, textContent: `${k}（${n} 筆）` })));
-  if (counts.has(prev)) select.value = prev;
+  if (pairs.some(([k]) => k === prev)) select.value = prev;
 
   $("stats-popular").replaceChildren(
     ...pairs.slice(0, 10).map(([k, n]) => {
@@ -663,25 +689,26 @@ $("stats-band").addEventListener("change", renderStats);
 
 function renderStats() {
   const body = $("stats-body");
-  if (!allTrips.length) {
-    body.replaceChildren(el("p", { className: "hint", textContent: "還沒有任何紀錄，搭車時記一筆吧！" }));
+  const minNote = ONLINE ? "為了保護個人隱私，累積 5 筆以上的路線和時段才會顯示。" : "";
+  if (!stats.length) {
+    body.replaceChildren(
+      el("p", { className: "hint", textContent: "還沒有可以顯示的統計，搭車時記一筆吧！" }),
+      el("p", { className: "hint", textContent: minNote })
+    );
     return;
   }
   const k = $("stats-pair").value;
-  const band = $("stats-band").value;
-  const ofPair = allTrips.filter((t) => pairKey(t.origin, t.destination) === k);
-  const rows = band === "all" ? ofPair : ofPair.filter((t) => t.time_band === band);
+  const r = statOf(k, $("stats-band").value);
 
-  if (!rows.length) {
-    body.replaceChildren(el("p", { className: "hint", textContent: "這個時段還沒有紀錄。" }));
+  if (!r) {
+    body.replaceChildren(el("p", { className: "hint", textContent: "這個時段的紀錄還不夠多。" + minNote }));
     return;
   }
 
-  const col = (name, list = rows) => list.map((t) => t[name]);
   const parts = [
-    { type: "wait", sec: median(col("wait_sec")) },
-    { type: "ride", sec: median(col("ride_sec")) },
-    { type: "transfer", sec: median(col("transfer_sec")) },
+    { type: "wait", sec: r.wait_p50 },
+    { type: "ride", sec: r.ride_p50 },
+    { type: "transfer", sec: r.transfer_p50 },
   ];
   const bar = el("div", { className: "stack-bar" });
   const legend = el("ul", { className: "legend" });
@@ -690,16 +717,16 @@ function renderStats() {
 
   const card = el("div", { className: "stat-card" }, [
     el("div", { className: "stat-sub", textContent: "全程中位數" }),
-    el("div", { className: "stat-big", textContent: fmtMin(median(col("total_sec"))) }),
+    el("div", { className: "stat-big", textContent: fmtMin(r.total_p50) }),
     el("div", {
       className: "stat-sub",
-      textContent: `一半的人落在 ${fmtMin(percentile(col("total_sec"), 0.25))} ～ ${fmtMin(percentile(col("total_sec"), 0.75))}・共 ${rows.length} 筆`,
+      textContent: `一半的人落在 ${fmtMin(r.total_p25)} ～ ${fmtMin(r.total_p75)}・共 ${r.n} 筆`,
     }),
     bar,
     el("div", { className: "stat-sub", textContent: "各段中位數" }),
     legend,
   ]);
-  if (rows.length < 5) {
+  if (r.n < 5) {
     card.append(el("p", { className: "hint", textContent: "⚠ 樣本還很少，數字僅供參考。" }));
   }
 
@@ -707,25 +734,26 @@ function renderStats() {
   const table = el("table", { className: "band-table" });
   table.append(el("tr", {}, ["時段", "筆數", "全程", "等車", "轉乘"].map((h) => el("th", { textContent: h }))));
   for (const b of ["peak", "offpeak", "weekend"]) {
-    const r = ofPair.filter((t) => t.time_band === b);
-    const cells = r.length
-      ? [BAND_LABELS[b], r.length, fmtMin(median(col("total_sec", r))), fmtMin(median(col("wait_sec", r))), fmtMin(median(col("transfer_sec", r)))]
-      : [BAND_LABELS[b], 0, "—", "—", "—"];
+    const br = statOf(k, b);
+    const cells = br
+      ? [BAND_LABELS[b], br.n, fmtMin(br.total_p50), fmtMin(br.wait_p50), fmtMin(br.transfer_p50)]
+      : [BAND_LABELS[b], ONLINE ? "不足 5" : 0, "—", "—", "—"];
     table.append(el("tr", {}, cells.map((c) => el("td", { textContent: String(c) }))));
   }
   card.append(table);
+  if (minNote) card.append(el("p", { className: "hint", textContent: minNote }));
 
   body.replaceChildren(card);
 }
 
 $("export").addEventListener("click", () => {
-  if (!allTrips.length) return;
-  const cols = ["started_at", "origin", "destination", "time_band", "total_sec", "wait_sec", "ride_sec", "transfer_sec", "transfers", "note"];
+  if (!stats.length) return;
+  const cols = ["origin", "destination", "time_band", "n", "total_p25", "total_p50", "total_p75", "wait_p50", "ride_p50", "transfer_p50"];
   const esc = (v) => `"${String(v ?? "").replace(/"/g, '""')}"`;
-  const csv = [cols.join(","), ...allTrips.map((t) => cols.map((c) => esc(t[c])).join(","))].join("\n");
+  const csv = [cols.join(","), ...stats.map((t) => cols.map((c) => esc(t[c])).join(","))].join("\n");
   // 開頭加 BOM，Excel 打開中文才不會亂碼
-  const blob = new Blob(["﻿" + csv], { type: "text/csv" });
-  const a = el("a", { href: URL.createObjectURL(blob), download: "commute-trips.csv" });
+  const blob = new Blob(["\ufeff" + csv], { type: "text/csv" });
+  const a = el("a", { href: URL.createObjectURL(blob), download: "commute-stats.csv" });
   a.click();
   URL.revokeObjectURL(a.href);
 });
