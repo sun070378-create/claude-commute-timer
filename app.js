@@ -894,14 +894,15 @@ $("export").addEventListener("click", () => {
   const cols = ["origin", "destination", "time_band", "n", "people", "total_p25", "total_p50", "total_p75", "wait_p50", "ride_p50",
     "transfer_p50", "gate_n", "gate_p25", "gate_p50", "gate_p75", "entry_p50", "exit_p50"];
   const esc = (v) => `"${String(v ?? "").replace(/"/g, '""')}"`;
+  // 授權與來源放在檔名和每一列的最後兩欄：第一列維持欄位名稱，Excel 和程式都能正常解析。時間單位為秒
+  const source = `通勤碼表 ${location.origin + location.pathname}`;
   const csv = [
-    esc(`資料來源：通勤碼表 ${location.origin + location.pathname}・授權 CC BY 4.0（使用時請標示來源）・時間單位為秒`),
-    cols.join(","),
-    ...stats.map((t) => cols.map((c) => esc(t[c])).join(",")),
+    [...cols, "license", "source"].join(","),
+    ...stats.map((t) => [...cols.map((c) => esc(t[c])), esc("CC BY-SA 4.0"), esc(source)].join(",")),
   ].join("\n");
   // 開頭加 BOM，Excel 打開中文才不會亂碼
   const blob = new Blob(["\ufeff" + csv], { type: "text/csv" });
-  const a = el("a", { href: URL.createObjectURL(blob), download: "commute-stats.csv" });
+  const a = el("a", { href: URL.createObjectURL(blob), download: "commute-stats_CC-BY-SA-4.0.csv" });
   a.click();
   URL.revokeObjectURL(a.href);
 });
