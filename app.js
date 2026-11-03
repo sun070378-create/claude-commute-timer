@@ -157,26 +157,26 @@ $("swap").addEventListener("click", () => {
 });
 
 // ---------- 選站視窗 ----------
-const picker = { target: "origin", line: null };
+// 起點、終點、轉乘站共用；transferOnly 時只列出有兩條以上路線的車站
+const TRANSFER_STATIONS = [...STATION_LINES.keys()].filter((s) => STATION_LINES.get(s).length > 1);
+const picker = { line: null, current: null, onChoose: null, transferOnly: false };
 
-function openPicker(target) {
-  picker.target = target;
-  picker.line = null;
-  $("picker-title").textContent = target === "origin" ? "選擇起點站" : "選擇終點站";
+function openPicker({ title, current, onChoose, transferOnly = false }) {
+  Object.assign(picker, { line: null, current, onChoose, transferOnly });
+  $("picker-title").textContent = title;
   $("picker-search").value = "";
   renderPicker();
   $("picker").showModal();
 }
 
 function choose(name) {
-  route[picker.target] = name;
-  renderRoute();
+  picker.onChoose(name);
   $("picker").close();
 }
 
 function stationRow(name, exceptLine) {
   const b = el("button", { type: "button", className: "row" }, stationLabel(name, exceptLine));
-  if (name === route[picker.target]) b.classList.add("selected");
+  if (name === picker.current) b.classList.add("selected");
   b.addEventListener("click", () => choose(name));
   return b;
 }
@@ -185,13 +185,24 @@ function renderPicker() {
   const q = $("picker-search").value.trim().replace(/站$/, "");
   const body = $("picker-body");
   $("picker-back").style.visibility = picker.line && !q ? "visible" : "hidden";
+  const candidates = picker.transferOnly ? TRANSFER_STATIONS : [...STATION_LINES.keys()];
 
   // 有輸入搜尋字：直接列出所有符合的站
   if (q) {
-    const hits = [...STATION_LINES.keys()].filter((s) => s.includes(q));
+    const hits = candidates.filter((s) => s.includes(q));
     body.replaceChildren(
       ...(hits.length ? hits.map((s) => stationRow(s)) : [el("p", { className: "hint", textContent: "找不到這個站名" })])
     );
+    return;
+  }
+
+  // 選轉乘站：轉乘站不多，直接全部列出
+  if (picker.transferOnly) {
+    body.replaceChildren(
+      el("p", { className: "picker-section", textContent: "可以轉乘的車站" }),
+      ...TRANSFER_STATIONS.map((s) => stationRow(s))
+    );
+    body.scrollTop = 0;
     return;
   }
 
@@ -230,8 +241,12 @@ function renderPicker() {
   body.scrollTop = 0;
 }
 
-$("origin").addEventListener("click", () => openPicker("origin"));
-$("destination").addEventListener("click", () => openPicker("destination"));
+$("origin").addEventListener("click", () => openPicker({
+  title: "選擇起點站", current: route.origin, onChoose: (s) => { route.origin = s; renderRoute(); },
+}));
+$("destination").addEventListener("click", () => openPicker({
+  title: "選擇終點站", current: route.destination, onChoose: (s) => { route.destination = s; renderRoute(); },
+}));
 $("picker-search").addEventListener("input", renderPicker);
 $("picker-back").addEventListener("click", () => { picker.line = null; renderPicker(); });
 $("picker-close").addEventListener("click", () => $("picker").close());
@@ -443,13 +458,14 @@ function tick() {
   $("phase-timer").textContent = phase ? fmt(segs[segs.length - 1].sec) : "0:00";
   $("total-timer").textContent = phase ? fmt((now - trip.events[0].t) / 1000) : "0:00";
 
+  // 新的在上面：正在進行的那段永遠在第一行，不用往下捲
   $("timeline").replaceChildren(
     ...segs.map((s, i) =>
-      el("li", { className: PHASES[s.type].cls + (i === segs.length - 1 ? " current" : "") }, [
+      el("li", { className: PHASES[s.type].cls + (i === segs.length - 1 ? " current" : " past") }, [
         el("span", {}, [PHASES[s.type].label.replace("中", ""), el("small", { className: "seg-time", textContent: clockTime(s.at) })]),
         el("span", { textContent: fmt(s.sec) }),
       ])
-    )
+    ).reverse()
   );
 }
 setInterval(tick, 1000);
@@ -460,7 +476,18 @@ document.addEventListener("visibilitychange", tick);
 // 三、結果確認與送出
 // =========================================================
 function buildRecord(t) {
-  const segments = segmentsOf(t, t.endedAt);
+  // 轉乘那幾段併入使用者在確認畫面填的轉乘站和標籤（沒填的就不加）
+  let k = 0;
+  const segments = segmentsOf(t, t.endedAt).map((s) => {
+    if (s.type !== "transfer") return s;
+    const info = (t.transferInfo || [])[k++] || {};
+    return {
+      ...s,
+      ...(info.station && { station: info.station }),
+      ...(info.ran && { ran: true }),
+      ...(info.missed && { missed: true }),
+    };
+  });
   const sum = (type) => segments.filter((s) => s.type === type).reduce((a, s) => a + s.sec, 0);
   // 時段以進到車站的時間為準，不含在家門口出發的時間
   const first = t.events.find((e) => STATION_TYPES.includes(e.type)) || t.events[0];
@@ -514,7 +541,60 @@ function renderLegend(container, parts, format = fmt) {
   );
 }
 
+// ---------- 轉乘資訊 ----------
+// 上次這條路線的轉乘站；反方向走過的也可以倒過來用
+function rememberedTransfers(o, d) {
+  const m = store.get("lastTransfers", {});
+  return m[pairKey(o, d)] || (m[pairKey(d, o)] || []).slice().reverse();
+}
+
+function ensureTransferInfo() {
+  if (trip.transferInfo) return;
+  const n = trip.events.filter((e) => e.type === "transfer").length;
+  const remembered = rememberedTransfers(trip.origin, trip.destination);
+  // 轉乘次數和上次一樣才自動帶入，不然站會對錯位置
+  trip.transferInfo = Array.from({ length: n }, (_, i) => ({ station: remembered.length === n ? remembered[i] : null }));
+  saveTrip();
+}
+
+function renderTransfers(segments) {
+  const transfers = segments.filter((s) => s.type === "transfer");
+  if (!transfers.length) {
+    $("sum-transfers").replaceChildren();
+    return;
+  }
+  $("sum-transfers").replaceChildren(
+    el("h3", { textContent: "轉乘資訊（選填）" }),
+    el("p", { className: "hint", textContent: "記下在哪一站轉乘，就能統計各站的轉乘時間。下次走同一條路線會自動帶入。" }),
+    ...transfers.map((s, i) => {
+      const info = trip.transferInfo[i];
+      const stationBtn = el("button", { type: "button", className: "station-field" },
+        info.station ? stationLabel(info.station) : [el("span", { className: "placeholder", textContent: "選擇轉乘站" })]);
+      stationBtn.addEventListener("click", () => openPicker({
+        title: `第 ${i + 1} 次轉乘的車站`,
+        current: info.station,
+        transferOnly: true,
+        onChoose: (st) => { info.station = st; saveTrip(); renderSummary(); },
+      }));
+      const tag = (key, label) => {
+        const c = el("button", { type: "button", className: "chip" + (info[key] ? " selected" : ""), textContent: label });
+        c.addEventListener("click", () => { info[key] = !info[key]; saveTrip(); renderSummary(); });
+        return c;
+      };
+      return el("div", { className: "transfer-row" }, [
+        el("div", { className: "transfer-head" }, [
+          el("b", { textContent: `第 ${i + 1} 次轉乘` }),
+          el("span", { className: "row-meta", textContent: `步行 ${fmt(s.sec)}` }),
+        ]),
+        stationBtn,
+        el("div", { className: "chips" }, [tag("ran", "🏃 用跑的"), tag("missed", "🚃 到月台時車剛好開走")]),
+      ]);
+    })
+  );
+}
+
 function renderSummary() {
+  ensureTransferInfo();
   const r = buildRecord(trip);
   const parts = [
     { type: "access", sec: r.access_sec },
@@ -531,6 +611,7 @@ function renderSummary() {
   $("sum-door").textContent = `加上到站、離站，出門到抵達共 ${fmt(door)}。到站、離站時間不列入大家的車站到車站統計。`;
   renderStackBar($("sum-bar"), parts);
   renderLegend($("sum-parts"), parts);
+  renderTransfers(r.segments);
   $("submit-msg").textContent = "";
   $("submit").disabled = false;
 
@@ -553,6 +634,12 @@ $("submit").addEventListener("click", async () => {
   $("submit-msg").textContent = "送出中…";
   try {
     if (ONLINE) await insertTrip(r);
+    const stations = trip.transferInfo.map((i) => i.station);
+    if (stations.length && stations.every(Boolean)) {
+      const m = store.get("lastTransfers", {});
+      m[pairKey(r.origin, r.destination)] = stations;
+      store.set("lastTransfers", m);
+    }
     const history = store.get("history", []);
     history.unshift(r);
     store.set("history", history.slice(0, 500));
@@ -761,7 +848,75 @@ $("export").addEventListener("click", () => {
 // =========================================================
 // 我的紀錄
 // =========================================================
+// ---------- 個人路線比較 ----------
+let myBand = "all";
+
+// 這筆紀錄的「走法」：到站／離站方式 + 經過哪些轉乘站
+function variantOf(r) {
+  const modes = modesText({ accessMode: r.access_mode, egressMode: r.egress_mode });
+  const transfers = (r.segments || []).filter((s) => s.type === "transfer");
+  const via = !transfers.length ? "直達"
+    : transfers.every((s) => s.station) ? "經" + transfers.map((s) => s.station).join("、")
+    : `轉乘 ${transfers.length} 次（未記錄轉乘站）`;
+  return [modes, via].filter(Boolean).join("・");
+}
+
+// 出門到抵達；沒記錄到站／離站的，就等於車站到車站
+const doorSec = (r) => r.total_sec + (r.access_sec || 0) + (r.egress_sec || 0);
+
+function renderMyStats() {
+  const bands = [["all", "全部"], ["peak", "平日尖峰"], ["offpeak", "平日離峰"], ["weekend", "假日"]];
+  $("my-band").replaceChildren(...bands.map(([v, label]) => {
+    const c = el("button", { type: "button", className: "chip" + (myBand === v ? " selected" : ""), textContent: label });
+    c.addEventListener("click", () => { myBand = v; renderMyStats(); });
+    return c;
+  }));
+
+  const list = store.get("history", []).filter((r) => myBand === "all" || r.time_band === myBand);
+  if (!list.length) {
+    $("my-stats").replaceChildren(el("p", { className: "hint", textContent: "這個時段還沒有紀錄。" }));
+    return;
+  }
+
+  // 起訖點 → 走法 → 紀錄
+  const pairs = new Map();
+  for (const r of list) {
+    const k = pairKey(r.origin, r.destination);
+    if (!pairs.has(k)) pairs.set(k, new Map());
+    const variants = pairs.get(k);
+    const v = variantOf(r);
+    if (!variants.has(v)) variants.set(v, []);
+    variants.get(v).push(r);
+  }
+
+  const cards = [...pairs.entries()]
+    .sort((a, b) => [...b[1].values()].flat().length - [...a[1].values()].flat().length)
+    .map(([k, variants]) => {
+      const rows = [...variants.entries()].map(([v, rs]) => ({
+        v, n: rs.length,
+        door: median(rs.map(doorSec)), doorLo: percentile(rs.map(doorSec), 0.25), doorHi: percentile(rs.map(doorSec), 0.75),
+        station: median(rs.map((r) => r.total_sec)),
+      })).sort((a, b) => a.door - b.door);
+
+      const table = el("table", { className: "band-table" });
+      table.append(el("tr", {}, ["走法", "筆數", "出門到抵達", "車站到車站"].map((h) => el("th", { textContent: h }))));
+      rows.forEach((row, i) => {
+        // 兩種以上走法才標最快；3 筆以上才顯示範圍，不然範圍沒有意義
+        const best = rows.length > 1 && i === 0 ? "★ " : "";
+        const range = row.n >= 3 ? `（${fmtMin(row.doorLo)}～${fmtMin(row.doorHi)}）` : "";
+        table.append(el("tr", {}, [best + row.v, row.n, fmtMin(row.door) + range, fmtMin(row.station)]
+          .map((c) => el("td", { textContent: String(c) }))));
+      });
+      return el("div", { className: "stat-card my-card" }, [el("b", { textContent: k }), table]);
+    });
+  $("my-stats").replaceChildren(
+    ...cards,
+    el("p", { className: "hint", textContent: "數字都是中位數。★ 是這個起訖點目前最快的走法；沒記錄到站／離站的，出門到抵達等於車站到車站。" })
+  );
+}
+
 function renderHistory() {
+  renderMyStats();
   const list = store.get("history", []);
   if (!list.length) {
     $("history-list").replaceChildren(el("p", { className: "hint", textContent: "還沒有紀錄。" }));
@@ -777,6 +932,7 @@ function renderHistory() {
             new Date(r.started_at).toLocaleString("zh-TW", { timeZone: "Asia/Taipei" }),
             r.access_mode && `${MODES[r.access_mode]}到站 ${fmt(r.access_sec)}`,
             `等 ${fmt(r.wait_sec)}`, `乘 ${fmt(r.ride_sec)}`, `轉 ${fmt(r.transfer_sec)}`,
+            variantOf({ segments: r.segments }),
             r.egress_mode && `${MODES[r.egress_mode]}離站 ${fmt(r.egress_sec)}`,
             r.note,
           ].filter(Boolean).join("・"),

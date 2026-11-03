@@ -85,6 +85,7 @@
       <div id="sum-bar" class="stack-bar"></div>
       <ul id="sum-parts" class="legend"></ul>
       <p id="sum-door" class="hint" hidden></p>
+      <div id="sum-transfers"></div>
       <label class="field">
         <span>備註（選填，例如：遇到延誤、下大雨）</span>
         <input id="note" type="text" maxlength="200">
@@ -120,8 +121,11 @@
 
     <!-- ===== 我的紀錄 ===== -->
     <section id="view-history" class="view" hidden>
-      <h2>我送出過的紀錄</h2>
-      <p class="hint">只存在這台裝置上。</p>
+      <h2>我的路線比較</h2>
+      <p class="hint">同一個起訖點，依到站方式和轉乘站分開比較，找出最快的走法。只用這台裝置上的紀錄。</p>
+      <div id="my-band" class="chips"></div>
+      <div id="my-stats"></div>
+      <h3>每一筆紀錄</h3>
       <ol id="history-list" class="history"></ol>
     </section>
   </main>
