@@ -1,19 +1,21 @@
 // =========================================================
 // 通勤碼表：主程式
-// 流程：設定起訖點 → 一路按按鈕（等車 / 上車 / 轉乘）→ 抵達後確認送出
+// 流程：設定起訖點 → 一路按按鈕（進站 / 等車 / 上車 / 轉乘 / 出站）→ 抵達後確認送出
 // =========================================================
 
 const PHASES = {
   wait: { label: "等車中", cls: "wait" },
   ride: { label: "乘車中", cls: "ride" },
   transfer: { label: "轉乘步行中", cls: "transfer" },
+  entry: { label: "進站走到月台中", cls: "gate" },
+  exit: { label: "走向出口中", cls: "gate" },
   access: { label: "前往車站中", cls: "access" },
   egress: { label: "前往目的地中", cls: "egress" },
 };
 // 到站、離站的交通方式（代碼要和 supabase/schema.sql 裡的一致）
 const MODES = { walk: "步行", bike: "腳踏車", youbike: "YouBike", scooter: "機車", car: "開車", bus: "公車" };
-// 車站到車站的部分，大家的資料會一起統計；到站、離站只出現在自己的紀錄
-const STATION_TYPES = ["wait", "ride", "transfer"];
+// 車站裡的部分（閘門到閘門），大家的資料會一起統計；到站、離站只存在自己的手機，不上傳
+const STATION_TYPES = ["entry", "wait", "ride", "transfer", "exit"];
 const BAND_LABELS = { peak: "平日尖峰", offpeak: "平日離峰", weekend: "假日" };
 const ONLINE = Boolean(SUPABASE_URL && SUPABASE_ANON_KEY);
 
@@ -94,7 +96,7 @@ function buzz() {
 // ---------- 分頁切換 ----------
 function showView(name) {
   document.querySelectorAll(".tab").forEach((t) => t.classList.toggle("active", t.dataset.view === name));
-  const views = { setup: "record", track: "record", summary: "record", stats: "stats", history: "history" };
+  const views = { setup: "record", track: "record", summary: "record", stats: "stats", history: "history", privacy: "privacy" };
   for (const v of Object.keys(views)) $("view-" + v).hidden = true;
 
   if (name === "record") name = trip ? (trip.endedAt ? "summary" : "track") : "setup";
@@ -104,6 +106,7 @@ function showView(name) {
   if (name === "summary") renderSummary();
   if (name === "stats") loadStats();
   if (name === "history") renderHistory();
+  if (name === "privacy") renderPrivacy();
 }
 
 document.querySelectorAll(".tab").forEach((t) => t.addEventListener("click", () => showView(t.dataset.view)));
@@ -365,27 +368,33 @@ function currentPhase() {
   return trip.events.length ? trip.events[trip.events.length - 1].type : null;
 }
 
-// 每個階段可以按的按鈕
+// 每個階段可以按的按鈕；small 的是不想記錄這一段時用的小字按鈕
 function actionsFor(phase) {
+  const skipEntry = { text: "已經在月台了，直接開始等車", next: "wait", small: true };
   switch (phase) {
-    case null: return trip.accessMode
-      ? [
-        { text: `出門了，${MODES[trip.accessMode]}前往車站`, next: "access", cls: "access" },
-        { text: "已經在月台了，開始等車", next: "wait", cls: "wait" },
-      ]
-      : [{ text: "到月台了，開始等車", next: "wait", cls: "wait" }];
-    case "access": return [{ text: "到月台了，開始等車", next: "wait", cls: "wait" }];
+    case null: return [
+      ...(trip.accessMode ? [{ text: `出門了，${MODES[trip.accessMode]}前往車站`, next: "access", cls: "access" }] : []),
+      { text: "刷卡進站了", next: "entry", cls: "gate" },
+      skipEntry,
+    ];
+    case "access": return [{ text: "刷卡進站了", next: "entry", cls: "gate" }, skipEntry];
+    case "entry": return [
+      { text: "到月台了，開始等車", next: "wait", cls: "wait" },
+      { text: "車剛好在月台，直接上車", next: "ride", cls: "ride" },
+    ];
     case "wait": return [{ text: "上車了", next: "ride", cls: "ride" }];
     case "ride": return [
       { text: "下車，要轉乘", next: "transfer", cls: "transfer" },
-      trip.egressMode
-        ? { text: `出站了，${MODES[trip.egressMode]}前往目的地`, next: "egress", cls: "access" }
-        : { text: "抵達終點", next: "end", cls: "finish" },
+      { text: "下車，走向出口", next: "exit", cls: "gate" },
+      { text: "已經出站了（不記錄出站時間）", next: trip.egressMode ? "egress" : "end", small: true },
     ];
     case "transfer": return [
       { text: "到轉乘月台，開始等車", next: "wait", cls: "wait" },
       { text: "車剛好在月台，直接上車", next: "ride", cls: "ride" },
     ];
+    case "exit": return trip.egressMode
+      ? [{ text: `刷卡出站了，${MODES[trip.egressMode]}前往目的地`, next: "egress", cls: "access" }]
+      : [{ text: "刷卡出站了", next: "end", cls: "finish" }];
     case "egress": return [{ text: "到達目的地", next: "end", cls: "finish" }];
   }
 }
@@ -438,7 +447,7 @@ function renderTrack() {
   const phase = currentPhase();
   $("actions").replaceChildren(
     ...actionsFor(phase).map((a) => {
-      const b = el("button", { className: "big-btn " + a.cls, type: "button", textContent: a.text });
+      const b = el("button", { className: a.small ? "link-btn action-skip" : "big-btn " + a.cls, type: "button", textContent: a.text });
       b.addEventListener("click", () => press(a.next));
       return b;
     })
@@ -453,7 +462,7 @@ function tick() {
   const phase = currentPhase();
   const segs = segmentsOf(trip, now);
 
-  const idle = trip.accessMode ? "還沒開始，出門時按下面的按鈕" : "還沒開始，到月台後按下面的按鈕";
+  const idle = trip.accessMode ? "還沒開始，出門時按下面的按鈕" : "還沒開始，刷卡進站時按下面的按鈕";
   $("phase-label").textContent = phase ? PHASES[phase].label : idle;
   $("phase-timer").textContent = phase ? fmt(segs[segs.length - 1].sec) : "0:00";
   $("total-timer").textContent = phase ? fmt((now - trip.events[0].t) / 1000) : "0:00";
@@ -489,7 +498,7 @@ function buildRecord(t) {
     };
   });
   const sum = (type) => segments.filter((s) => s.type === type).reduce((a, s) => a + s.sec, 0);
-  // 時段以進到車站的時間為準，不含在家門口出發的時間
+  // 時段以刷卡進站（沒按就是開始等車）的時間為準，不含在家門口出發的時間
   const first = t.events.find((e) => STATION_TYPES.includes(e.type)) || t.events[0];
   const started = new Date(first.t);
   const band = timeBand(started);
@@ -509,6 +518,8 @@ function buildRecord(t) {
     transfers: segments.filter((s) => s.type === "transfer").length,
     segments,
     // 這趟沒有按到站／離站，就算原本有設定方式也記成空的
+    entry_sec: segments.some((s) => s.type === "entry") ? sum("entry") : null,
+    exit_sec: segments.some((s) => s.type === "exit") ? sum("exit") : null,
     access_mode: segments.some((s) => s.type === "access") ? t.accessMode : null,
     access_sec: segments.some((s) => s.type === "access") ? sum("access") : null,
     egress_mode: segments.some((s) => s.type === "egress") ? t.egressMode : null,
@@ -517,6 +528,27 @@ function buildRecord(t) {
     client_id: clientId(),
   };
 }
+
+// 送到資料庫的版本：只留統計需要的部分（資料最小化），完整紀錄留在手機上
+// - 到站／離站不上傳：和住家、公司位置有關，本來也不列入統計
+// - 時刻四捨五入到分鐘，夠對照時刻表；各段秒數已經用原始時間算好，維持精確到秒
+// - 備註只有使用者勾選時才上傳
+const roundMinute = (iso) => new Date(Math.round(Date.parse(iso) / 60000) * 60000).toISOString();
+
+function toUpload(r, withNote) {
+  const { access_mode, access_sec, egress_mode, egress_sec, ...rest } = r;
+  return {
+    ...rest,
+    started_at: roundMinute(r.started_at),
+    segments: r.segments
+      .filter((s) => s.type !== "access" && s.type !== "egress")
+      .map((s) => ({ ...s, at: roundMinute(s.at) })),
+    note: withNote ? r.note : null,
+  };
+}
+
+// 閘門到閘門：進站、出站兩段都有記錄才算得出來
+const gateSec = (r) => (r.entry_sec == null || r.exit_sec == null ? null : r.entry_sec + r.total_sec + r.exit_sec);
 
 function renderStackBar(container, parts) {
   const total = parts.reduce((a, p) => a + p.sec, 0) || 1;
@@ -598,17 +630,25 @@ function renderSummary() {
   const r = buildRecord(trip);
   const parts = [
     { type: "access", sec: r.access_sec },
+    { type: "entry", sec: r.entry_sec },
     { type: "wait", sec: r.wait_sec },
     { type: "ride", sec: r.ride_sec },
     { type: "transfer", sec: r.transfer_sec },
+    { type: "exit", sec: r.exit_sec },
     { type: "egress", sec: r.egress_sec },
   ].filter((p) => p.sec !== null);
-  $("sum-total").textContent = fmt(r.total_sec);
+  const gate = gateSec(r);
+  $("sum-title").textContent = gate === null ? "這趟花了" : "閘門到閘門花了";
+  $("sum-total").textContent = fmt(gate ?? r.total_sec);
   $("sum-route").textContent = `${clockTime(r.started_at)} ${r.origin} → ${r.destination}・${BAND_LABELS[r.time_band]}・轉乘 ${r.transfers} 次`;
-  const door = r.total_sec + (r.access_sec || 0) + (r.egress_sec || 0);
-  $("sum-door").hidden = door === r.total_sec;
-  $("sum-title").textContent = door === r.total_sec ? "這趟花了" : "車站到車站花了";
-  $("sum-door").textContent = `加上到站、離站，出門到抵達共 ${fmt(door)}。到站、離站時間不列入大家的車站到車站統計。`;
+  const inStation = r.total_sec + (r.entry_sec || 0) + (r.exit_sec || 0);
+  const door = inStation + (r.access_sec || 0) + (r.egress_sec || 0);
+  const notes = [];
+  if (gate !== null) notes.push(`月台到月台（等車＋乘車＋轉乘）${fmt(r.total_sec)}。`);
+  if (door !== inStation) notes.push(`加上到站、離站，出門到抵達共 ${fmt(door)}；這兩段只存在你的手機，不會上傳。`);
+  $("sum-door").hidden = !notes.length;
+  $("sum-door").textContent = notes.join("");
+  $("consent").hidden = !ONLINE;
   renderStackBar($("sum-bar"), parts);
   renderLegend($("sum-parts"), parts);
   renderTransfers(r.segments);
@@ -633,7 +673,7 @@ $("submit").addEventListener("click", async () => {
   $("submit").disabled = true;
   $("submit-msg").textContent = "送出中…";
   try {
-    if (ONLINE) await insertTrip(r);
+    if (ONLINE) await insertTrip(toUpload(r, $("note-share").checked));
     const stations = trip.transferInfo.map((i) => i.station);
     if (stations.length && stations.every(Boolean)) {
       const m = store.get("lastTransfers", {});
@@ -646,7 +686,8 @@ $("submit").addEventListener("click", async () => {
     trip = null;
     saveTrip();
     $("note").value = "";
-    alert(ONLINE ? "已送出，謝謝你提供數據！同一條路線累積 5 筆以上，就會出現在統計頁。" : "已存到這台裝置（本機模式）");
+    $("note-share").checked = false;
+    alert(ONLINE ? "已送出，謝謝你提供數據！同一條路線累積 5 人以上，就會出現在統計頁。" : "已存到這台裝置（本機模式）");
     showView("stats");
     selectPair(r.origin, r.destination);
   } catch (err) {
@@ -708,15 +749,23 @@ function computeStats(trips) {
   }
   return [...groups.entries()].map(([k, list]) => {
     const [origin, destination, time_band] = k.split("\n");
-    const col = (name) => list.map((t) => t[name]);
+    const col = (name, rows = list) => rows.map((t) => t[name]);
+    const gated = list.filter((t) => gateSec(t) !== null);
+    const g = gated.length > 0;
     return {
-      origin, destination, time_band, n: list.length,
+      origin, destination, time_band, n: list.length, people: 1,
       total_p25: percentile(col("total_sec"), 0.25),
       total_p50: median(col("total_sec")),
       total_p75: percentile(col("total_sec"), 0.75),
       wait_p50: median(col("wait_sec")),
       ride_p50: median(col("ride_sec")),
       transfer_p50: median(col("transfer_sec")),
+      gate_n: g ? gated.length : null,
+      gate_p25: g ? percentile(gated.map(gateSec), 0.25) : null,
+      gate_p50: g ? median(gated.map(gateSec)) : null,
+      gate_p75: g ? percentile(gated.map(gateSec), 0.75) : null,
+      entry_p50: g ? median(col("entry_sec", gated)) : null,
+      exit_p50: g ? median(col("exit_sec", gated)) : null,
     };
   });
 }
@@ -776,7 +825,7 @@ $("stats-band").addEventListener("change", renderStats);
 
 function renderStats() {
   const body = $("stats-body");
-  const minNote = ONLINE ? "為了保護個人隱私，累積 5 筆以上的路線和時段才會顯示。" : "";
+  const minNote = ONLINE ? "為了保護個人隱私，有 5 人以上記錄的路線和時段才會顯示（同一個人記很多筆也只算 1 人）。" : "";
   if (!stats.length) {
     body.replaceChildren(
       el("p", { className: "hint", textContent: "還沒有可以顯示的統計，搭車時記一筆吧！" }),
@@ -792,10 +841,13 @@ function renderStats() {
     return;
   }
 
+  const hasGate = r.gate_p50 != null;
   const parts = [
+    ...(hasGate ? [{ type: "entry", sec: r.entry_p50 }] : []),
     { type: "wait", sec: r.wait_p50 },
     { type: "ride", sec: r.ride_p50 },
     { type: "transfer", sec: r.transfer_p50 },
+    ...(hasGate ? [{ type: "exit", sec: r.exit_p50 }] : []),
   ];
   const bar = el("div", { className: "stack-bar" });
   const legend = el("ul", { className: "legend" });
@@ -803,12 +855,16 @@ function renderStats() {
   renderLegend(legend, parts, fmtMin);
 
   const card = el("div", { className: "stat-card" }, [
-    el("div", { className: "stat-sub", textContent: "全程中位數" }),
+    el("div", { className: "stat-sub", textContent: "月台到月台（等車＋乘車＋轉乘）中位數" }),
     el("div", { className: "stat-big", textContent: fmtMin(r.total_p50) }),
     el("div", {
       className: "stat-sub",
-      textContent: `一半的人落在 ${fmtMin(r.total_p25)} ～ ${fmtMin(r.total_p75)}・共 ${r.n} 筆`,
+      textContent: `一半的紀錄落在 ${fmtMin(r.total_p25)} ～ ${fmtMin(r.total_p75)}・共 ${r.n} 筆` + (ONLINE ? `、${r.people} 人` : ""),
     }),
+    ...(hasGate ? [el("div", {
+      className: "stat-sub gate-line",
+      textContent: `閘門到閘門中位數 ${fmtMin(r.gate_p50)}（${fmtMin(r.gate_p25)} ～ ${fmtMin(r.gate_p75)}・${r.gate_n} 筆有記錄進出站）`,
+    })] : []),
     bar,
     el("div", { className: "stat-sub", textContent: "各段中位數" }),
     legend,
@@ -824,7 +880,7 @@ function renderStats() {
     const br = statOf(k, b);
     const cells = br
       ? [BAND_LABELS[b], br.n, fmtMin(br.total_p50), fmtMin(br.wait_p50), fmtMin(br.transfer_p50)]
-      : [BAND_LABELS[b], ONLINE ? "不足 5" : 0, "—", "—", "—"];
+      : [BAND_LABELS[b], ONLINE ? "不足 5 人" : 0, "—", "—", "—"];
     table.append(el("tr", {}, cells.map((c) => el("td", { textContent: String(c) }))));
   }
   card.append(table);
@@ -835,12 +891,18 @@ function renderStats() {
 
 $("export").addEventListener("click", () => {
   if (!stats.length) return;
-  const cols = ["origin", "destination", "time_band", "n", "total_p25", "total_p50", "total_p75", "wait_p50", "ride_p50", "transfer_p50"];
+  const cols = ["origin", "destination", "time_band", "n", "people", "total_p25", "total_p50", "total_p75", "wait_p50", "ride_p50",
+    "transfer_p50", "gate_n", "gate_p25", "gate_p50", "gate_p75", "entry_p50", "exit_p50"];
   const esc = (v) => `"${String(v ?? "").replace(/"/g, '""')}"`;
-  const csv = [cols.join(","), ...stats.map((t) => cols.map((c) => esc(t[c])).join(","))].join("\n");
+  // 授權與來源放在檔名和每一列的最後兩欄：第一列維持欄位名稱，Excel 和程式都能正常解析。時間單位為秒
+  const source = `通勤碼表 ${location.origin + location.pathname}`;
+  const csv = [
+    [...cols, "license", "source"].join(","),
+    ...stats.map((t) => [...cols.map((c) => esc(t[c])), esc("CC BY-SA 4.0"), esc(source)].join(",")),
+  ].join("\n");
   // 開頭加 BOM，Excel 打開中文才不會亂碼
   const blob = new Blob(["\ufeff" + csv], { type: "text/csv" });
-  const a = el("a", { href: URL.createObjectURL(blob), download: "commute-stats.csv" });
+  const a = el("a", { href: URL.createObjectURL(blob), download: "commute-stats_CC-BY-SA-4.0.csv" });
   a.click();
   URL.revokeObjectURL(a.href);
 });
@@ -861,8 +923,9 @@ function variantOf(r) {
   return [modes, via].filter(Boolean).join("・");
 }
 
-// 出門到抵達；沒記錄到站／離站的，就等於車站到車站
-const doorSec = (r) => r.total_sec + (r.access_sec || 0) + (r.egress_sec || 0);
+// 車站裡（有記錄進出站就是閘門到閘門）；出門到抵達再加上到站、離站
+const inStationSec = (r) => r.total_sec + (r.entry_sec || 0) + (r.exit_sec || 0);
+const doorSec = (r) => inStationSec(r) + (r.access_sec || 0) + (r.egress_sec || 0);
 
 function renderMyStats() {
   const bands = [["all", "全部"], ["peak", "平日尖峰"], ["offpeak", "平日離峰"], ["weekend", "假日"]];
@@ -895,7 +958,7 @@ function renderMyStats() {
       const rows = [...variants.entries()].map(([v, rs]) => ({
         v, n: rs.length,
         door: median(rs.map(doorSec)), doorLo: percentile(rs.map(doorSec), 0.25), doorHi: percentile(rs.map(doorSec), 0.75),
-        station: median(rs.map((r) => r.total_sec)),
+        station: median(rs.map(inStationSec)),
       })).sort((a, b) => a.door - b.door);
 
       const table = el("table", { className: "band-table" });
@@ -916,6 +979,7 @@ function renderMyStats() {
 }
 
 function renderHistory() {
+  $("my-client-id").textContent = clientId();
   renderMyStats();
   const list = store.get("history", []);
   if (!list.length) {
@@ -925,14 +989,16 @@ function renderHistory() {
   $("history-list").replaceChildren(
     ...list.map((r) =>
       el("li", {}, [
-        `${r.origin} → ${r.destination}　${fmt(r.total_sec)}`,
+        `${r.origin} → ${r.destination}　${fmt(gateSec(r) ?? r.total_sec)}`,
         el("span", {
           className: "meta",
           textContent: [
             new Date(r.started_at).toLocaleString("zh-TW", { timeZone: "Asia/Taipei" }),
             r.access_mode && `${MODES[r.access_mode]}到站 ${fmt(r.access_sec)}`,
+            r.entry_sec != null && `進站 ${fmt(r.entry_sec)}`,
             `等 ${fmt(r.wait_sec)}`, `乘 ${fmt(r.ride_sec)}`, `轉 ${fmt(r.transfer_sec)}`,
             variantOf({ segments: r.segments }),
+            r.exit_sec != null && `出站 ${fmt(r.exit_sec)}`,
             r.egress_mode && `${MODES[r.egress_mode]}離站 ${fmt(r.egress_sec)}`,
             r.note,
           ].filter(Boolean).join("・"),
@@ -940,6 +1006,28 @@ function renderHistory() {
       ])
     )
   );
+}
+
+// =========================================================
+// 隱私與使用說明
+// =========================================================
+// 頁面裡的 data-goto 連結（例如送出按鈕旁的〈隱私與使用說明〉）
+document.addEventListener("click", (e) => {
+  const link = e.target.closest("[data-goto]");
+  if (!link) return;
+  e.preventDefault();
+  showView(link.dataset.goto);
+  window.scrollTo(0, 0);
+});
+
+function renderPrivacy() {
+  $("privacy-client-id").textContent = clientId();
+  const email = typeof CONTACT_EMAIL === "string" ? CONTACT_EMAIL : "";
+  $("contact-email-item").hidden = !email;
+  if (email) {
+    $("contact-email").href = "mailto:" + email;
+    $("contact-email").textContent = email;
+  }
 }
 
 // ---------- 啟動 ----------

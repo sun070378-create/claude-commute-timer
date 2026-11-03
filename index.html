@@ -90,7 +90,15 @@
         <span>備註（選填，例如：遇到延誤、下大雨）</span>
         <input id="note" type="text" maxlength="200">
       </label>
+      <label class="check">
+        <input id="note-share" type="checkbox">
+        把備註一起送給維護者（不會公開）
+      </label>
+      <p class="hint">沒勾選的話，備註只存在你的手機。請勿在備註填寫姓名、電話等個人資料。</p>
       <button id="submit" class="big-btn primary" type="button">送出這筆紀錄</button>
+      <p id="consent" class="hint consent">
+        按下送出，即表示你同意依<a href="#" data-goto="privacy">〈隱私與使用說明〉</a>提供這筆紀錄，並同意統計結果以 <a href="https://creativecommons.org/licenses/by-sa/4.0/deed.zh-hant" target="_blank" rel="noopener">CC BY-SA 4.0</a> 公開。
+      </p>
       <button id="discard" class="link-btn danger" type="button">不要送出</button>
       <p id="submit-msg" class="hint"></p>
     </section>
@@ -117,6 +125,10 @@
       <h3>熱門路線</h3>
       <ol id="stats-popular" class="popular"></ol>
       <button id="export" class="link-btn" type="button">下載統計結果（CSV）</button>
+      <p class="hint license-note">
+        統計資料以 <a href="https://creativecommons.org/licenses/by-sa/4.0/deed.zh-hant" target="_blank" rel="noopener">CC BY-SA 4.0</a> 授權，使用時請標示來源：通勤碼表。
+        數字由使用者自行回報，僅供參考。
+      </p>
     </section>
 
     <!-- ===== 我的紀錄 ===== -->
@@ -125,10 +137,83 @@
       <p class="hint">同一個起訖點，依到站方式和轉乘站分開比較，找出最快的走法。只用這台裝置上的紀錄。</p>
       <div id="my-band" class="chips"></div>
       <div id="my-stats"></div>
+      <p class="hint">你的裝置代碼：<code id="my-client-id"></code>（申請刪除上傳過的資料時使用）</p>
       <h3>每一筆紀錄</h3>
       <ol id="history-list" class="history"></ol>
     </section>
+
+    <!-- ===== 隱私與使用說明 ===== -->
+    <section id="view-privacy" class="view privacy" hidden>
+      <h2>隱私與使用說明</h2>
+      <p class="hint">最後更新：2026 年 11 月</p>
+
+      <h3>這是什麼</h3>
+      <p>
+        通勤碼表是個人製作的開源專案，讓乘客自己記錄搭台北捷運、淡海輕軌、安坑輕軌時的進站、等車、乘車、轉乘、出站時間，彙整成公開統計。
+        <b>本站不是臺北捷運公司、新北捷運公司或任何政府機關的官方網站。</b>
+      </p>
+
+      <h3>會上傳哪些資料</h3>
+      <p>按下「送出」時，只會上傳下列資料：</p>
+      <ul>
+        <li>起點站、終點站、轉乘站</li>
+        <li>每一段（進站、等車、乘車、轉乘、出站）花了幾秒，以及轉乘次數</li>
+        <li>轉乘時有沒有「用跑的」「到月台時車剛好開走」</li>
+        <li>日期、時段（平日尖峰／平日離峰／假日），以及每一段的開始時刻；<b>時刻只保留到分鐘</b></li>
+        <li>這支手機的裝置代碼：隨機產生，不含姓名、電話等資訊。用來計算有幾個人記錄、處理刪除申請，以及找出並刪除惡意資料</li>
+        <li>備註：<b>只有勾選「把備註一起送給維護者」時才會上傳</b>，而且不會公開</li>
+      </ul>
+
+      <h3>不會上傳的資料</h3>
+      <ul>
+        <li>到站、離站（出門到車站、出站到目的地）的交通方式和時間</li>
+        <li>精確到秒的時刻</li>
+        <li>沒有勾選上傳的備註，以及你存的常用路線</li>
+      </ul>
+      <p>這些資料和你完整的個人紀錄，只存在這支手機的瀏覽器裡，清除瀏覽器資料就會刪除。本站不放廣告、不做追蹤分析，也不收集你的位置。</p>
+
+      <h3>資料用途與公開方式</h3>
+      <ul>
+        <li>用途：計算各路線、各時段的通勤時間統計，分析捷運和輕軌的營運表現，例如改善工程後行車時間有沒有縮短</li>
+        <li>對外只公開彙總後的統計（中位數、範圍、筆數、人數），而且<b>同一條路線、同一時段要有 5 人以上記錄才會顯示</b></li>
+        <li>原始資料只有網站維護者看得到，不會出售或提供給他人</li>
+        <li>統計結果以 <a href="https://creativecommons.org/licenses/by-sa/4.0/deed.zh-hant" target="_blank" rel="noopener">CC BY-SA 4.0</a> 授權公開：任何人都可以使用，包括新聞報導、研究和商業用途，但要標示來源「通勤碼表」，改作後的資料也要用同樣的授權公開</li>
+        <li><b>原始紀錄不公開，也不在這個授權範圍內</b>；授權的只有統計頁和下載的彙總統計</li>
+        <li>統計數字是使用者自行回報，可能有誤差，僅供參考</li>
+      </ul>
+
+      <h3>資料存放位置</h3>
+      <p>
+        資料存放在 Supabase 提供的雲端資料庫（亞太地區機房），網站放在 GitHub Pages。
+        這兩個服務會依它們自己的隱私政策，短期記錄連線資訊（例如 IP 位址）；本站不會另外保存或使用這些資訊。
+      </p>
+
+      <h3>申請刪除資料</h3>
+      <p>想刪除你上傳過的所有紀錄，請附上裝置代碼，用下面任一方式聯絡維護者：</p>
+      <p class="client-id">你的裝置代碼：<code id="privacy-client-id"></code></p>
+      <ul>
+        <li>
+          <a href="https://github.com/sun070378-create/claude-commute-timer/issues" target="_blank" rel="noopener">在 GitHub 開一則 Issue</a>
+          （內容會公開，請只寫裝置代碼，不要寫其他個人資料）
+        </li>
+        <li id="contact-email-item" hidden>Email：<a id="contact-email"></a></li>
+      </ul>
+      <p class="hint">裝置代碼只存在這支手機上。清除瀏覽器資料或換手機後會產生新的代碼，舊的就找不回來，請先記下來。</p>
+
+      <h3>原始碼</h3>
+      <p>
+        本站的程式碼以 <a href="https://github.com/sun070378-create/claude-commute-timer/blob/main/LICENSE" target="_blank" rel="noopener">AGPL-3.0</a>
+        授權公開在 <a href="https://github.com/sun070378-create/claude-commute-timer" target="_blank" rel="noopener">GitHub</a>。
+      </p>
+      <button class="big-btn primary" type="button" data-goto="record">回到記錄</button>
+    </section>
   </main>
+
+  <footer class="site-footer">
+    <a href="#" data-goto="privacy">隱私與使用說明</a>
+    ・<a href="https://github.com/sun070378-create/claude-commute-timer" target="_blank" rel="noopener">原始碼</a>
+    ・非捷運公司官方網站
+  </footer>
 
   <!-- ===== 選站視窗：先選路線，再選車站；也可以直接搜尋 ===== -->
   <dialog id="picker" class="picker">

@@ -372,3 +372,25 @@ h3 { font-size: 16px; margin: 28px 0 8px; }
 .my-card { margin-bottom: 12px; }
 .my-card .band-table td:first-child { white-space: normal; }
 .my-card .band-table th { white-space: nowrap; font-size: 12px; }
+
+/* 進站、出站（閘門到月台）的顏色 */
+:root { --gate: #6f8299; }
+.big-btn.gate { background: var(--gate); color: #fff; }
+.timeline li.gate { border-left-color: var(--gate); }
+.stack-bar .gate, .stack-bar .entry, .stack-bar .exit { background: var(--gate); }
+.dot.entry, .dot.exit { background: var(--gate); }
+.action-skip { display: block; margin: 0 auto 8px; }
+.gate-line { margin-top: 4px; }
+
+/* 送出前的備註勾選與同意文字 */
+.check { display: flex; align-items: center; gap: 8px; font-size: 15px; }
+.check input { width: 20px; height: 20px; }
+.consent { text-align: center; }
+.consent a, .privacy a, .site-footer a { color: var(--primary); }
+
+/* 隱私與使用說明 */
+.privacy p, .privacy li { font-size: 15px; }
+.privacy ul { padding-left: 20px; }
+.client-id code, .hint code { padding: 2px 6px; background: var(--card); border: 1px solid var(--line); border-radius: 6px; user-select: all; }
+.site-footer { max-width: 520px; margin: 0 auto; padding: 8px 16px 32px; text-align: center; font-size: 13px; color: var(--muted); }
+.license-note { margin-top: 4px; }
