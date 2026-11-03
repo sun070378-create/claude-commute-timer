@@ -6,4 +6,4 @@ const SUPABASE_URL = "https://ikkxwgxsryzilqtxzebj.supabase.co";
 const SUPABASE_ANON_KEY = "sb_publishable_0JSNSxBTgUmttL8pDKhV3g_86H6_Pyb";
 
 // 隱私說明裡「申請刪除資料」的聯絡 email；留空就只顯示 GitHub Issues
-const CONTACT_EMAIL = "";
+const CONTACT_EMAIL = "sun070378@gmail.com";
