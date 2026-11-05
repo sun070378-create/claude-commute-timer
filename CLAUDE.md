@@ -17,7 +17,7 @@
 | `config.js` | `SUPABASE_URL`、`SUPABASE_ANON_KEY`、`CONTACT_EMAIL` |
 | `style.css` | 顏色集中在 `:root`（暗色在 `prefers-color-scheme: dark`） |
 | `sw.js` | service worker：打開首頁時整組下載 `FILES`，全部成功才換新版；3 秒內下載不完或沒網路就用快取；伺服器缺檔就清快取改走網路 |
-| `manifest.webmanifest`、`icons/` | 加入主畫面用的名稱與圖示（PNG 由 `icons/icon.svg` 的設計輸出） |
+| `manifest.webmanifest`、`icons/` | 加入主畫面用的名稱與圖示（碼表三色外圈＋軌道列車正面）；PNG 由 `scripts/export-icons.js` 從 `icons/icon.svg` 產生 |
 | `supabase/schema.sql` | 資料表、權限、trigger、統計函式；可重複執行（冪等升級） |
 | `scripts/check-stations.js` | 比對 `stations.js` 和 schema 內的車站清單；`--write` 自動同步 |
 
@@ -49,6 +49,7 @@
 - **加或改車站**：改 `stations.js` → `node scripts/check-stations.js --write` → 提醒使用者到 Supabase SQL Editor 重新執行整份 `schema.sql`（push 不會改到線上資料庫）。
 - **改隱私相關行為**：前端 `toUpload` 和資料庫 `trips_before_insert` 兩邊都要改，README 的〈隱私〉段和 `index.html` 的隱私頁也要同步。
 - **新增、改名或刪除網頁用到的檔案**：同步改 `sw.js` 的 `FILES`（漏改時網站仍可用，但離線開啟會失效）。
+- **改圖示**：改 `icons/icon.svg` → `node scripts/export-icons.js`（需要 Playwright）。maskable 版內容縮到 0.86 倍，Android 圓形裁切時不會切到。
 - **改資料庫錯誤訊息**：`insertTrip` 用訊息裡的「太頻繁」「太多」判斷可以重送，改 `trips_before_insert` 的頻率限制訊息時要一起改。
 - **localStorage**：和同網域的 claude-web-quest 共用（`sun070378-create.github.io`），新增 key 時避免撞名（網頁闖關用 `webquest-progress`、`note`、`theme`）。
 
