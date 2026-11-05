@@ -5,6 +5,7 @@
 
 const PHASES = {
   wait: { label: "等車中", cls: "wait" },
+  board: { label: "在車上等發車中", cls: "wait" },
   ride: { label: "乘車中", cls: "ride" },
   transfer: { label: "轉乘步行中", cls: "transfer" },
   entry: { label: "進站走到月台中", cls: "gate" },
@@ -15,7 +16,7 @@ const PHASES = {
 // 到站、離站的交通方式（代碼要和 supabase/schema.sql 裡的一致）
 const MODES = { walk: "步行", bike: "腳踏車", youbike: "YouBike", scooter: "機車", car: "開車", bus: "公車" };
 // 車站裡的部分（閘門到閘門），大家的資料會一起統計；到站、離站只存在自己的手機，不上傳
-const STATION_TYPES = ["entry", "wait", "ride", "transfer", "exit"];
+const STATION_TYPES = ["entry", "wait", "board", "ride", "transfer", "exit"];
 const BAND_LABELS = { peak: "平日尖峰", offpeak: "平日離峰", weekend: "假日" };
 const ONLINE = Boolean(SUPABASE_URL && SUPABASE_ANON_KEY);
 
@@ -374,6 +375,8 @@ function currentPhase() {
 // 每個階段可以按的按鈕；small 的是不想記錄這一段時用的小字按鈕
 function actionsFor(phase) {
   const skipEntry = { text: "已經在月台了，直接開始等車", next: "wait", small: true };
+  // 車停在月台還沒開（輕軌、捷運的起訖站，或等轉乘乘客的列車）：先上車等，車開了才開始算乘車
+  const boardEarly = { text: "上車了，但車還沒開", next: "board", small: true };
   switch (phase) {
     case null: return [
       ...(trip.accessMode ? [{ text: `出門了，${MODES[trip.accessMode]}前往車站`, next: "access", cls: "access" }] : []),
@@ -384,8 +387,10 @@ function actionsFor(phase) {
     case "entry": return [
       { text: "到月台了，開始等車", next: "wait", cls: "wait" },
       { text: "車剛好在月台，直接上車", next: "ride", cls: "ride" },
+      boardEarly,
     ];
-    case "wait": return [{ text: "上車了", next: "ride", cls: "ride" }];
+    case "wait": return [{ text: "上車了", next: "ride", cls: "ride" }, boardEarly];
+    case "board": return [{ text: "車開了", next: "ride", cls: "ride" }];
     case "ride": return [
       { text: "下車，要轉乘", next: "transfer", cls: "transfer" },
       { text: "下車，走向出口", next: "exit", cls: "gate" },
@@ -394,6 +399,7 @@ function actionsFor(phase) {
     case "transfer": return [
       { text: "到轉乘月台，開始等車", next: "wait", cls: "wait" },
       { text: "車剛好在月台，直接上車", next: "ride", cls: "ride" },
+      boardEarly,
     ];
     case "exit": return trip.egressMode
       ? [{ text: `刷卡出站了，${MODES[trip.egressMode]}前往目的地`, next: "egress", cls: "access" }]
@@ -505,7 +511,8 @@ function buildRecord(t) {
   const first = t.events.find((e) => STATION_TYPES.includes(e.type)) || t.events[0];
   const started = new Date(first.t);
   const band = timeBand(started);
-  const wait = sum("wait");
+  // 在車上等發車也算等車：等車＝到月台到車開，乘車就只剩真正行駛的時間
+  const wait = sum("wait") + sum("board");
   const ride = sum("ride");
   const transfer = sum("transfer");
   return {

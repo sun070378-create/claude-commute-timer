@@ -7,6 +7,7 @@
 ## app.js 重點函式
 
 - 碼表：`startTrip`、`press`（切換階段）、`actionsFor`、`currentPhase`、`segmentsOf`、`tick`
+- 段落類型：`entry`、`wait`、`board`（上車了但車還沒開，在車上等發車）、`ride`、`transfer`、`exit`，本機另有 `access`、`egress`。`board` 計入 `wait_sec`（前端 `buildRecord` 和 trigger 兩邊都是），所以 `ride_sec` 只有行駛時間
 - 紀錄：`buildRecord`、`toUpload`（上傳最小化）、`insertTrip`（失敗丟 `UploadError`，`retry` = 之後重送就好）
 - 補送：送出時先存進 history，`r.pending` = 待上傳內容，被拒絕則改記 `r.uploadError`。`flushPending`（一次一筆，最舊的先送，間隔 61 秒，配合每分鐘一筆的頻率限制）、`upload`（超過 47 小時不送）、`renderPending`（上方橫幅）；`online`、`visibilitychange`、啟動時觸發
 - 備份：`download`、匯出按鈕（history、savedRoutes、lastTransfers、clientId）、`importBackup`（依 `started_at` 去重；這台沒有紀錄才沿用備份的 clientId）
