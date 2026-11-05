@@ -109,7 +109,7 @@
 
 ### 技術架構
 
-純 HTML／CSS／JavaScript，沒有建置步驟、沒有套件。網頁放在 GitHub Pages，資料存在 [Supabase](https://supabase.com)（PostgreSQL）。
+純 HTML／CSS／JavaScript，沒有建置步驟、沒有套件。網頁可以放在 GitHub Pages 或 Cloudflare Pages，資料存在 [Supabase](https://supabase.com)（PostgreSQL）。放在 Cloudflare Pages 時，可以加上 Cloudflare Turnstile 擋機器人（見下面「架設自己的版本」第 3 步）。
 
 | 檔案 | 內容 |
 |------|------|
@@ -117,7 +117,8 @@
 | `style.css` | 外觀（顏色集中在最上面的 `:root`） |
 | `app.js` | 碼表、送出與自動補送、統計、備份 |
 | `stations.js` | 路線與車站清單 |
-| `config.js` | 資料庫網址、公開金鑰、聯絡 email |
+| `config.js` | 資料庫網址、公開金鑰、聯絡 email、Turnstile 的 Site key、搬家後的新網址 |
+| `functions/api/trips.js` | 放在 Cloudflare Pages 時才會用到的伺服器程式：確認 Turnstile 驗證通過，再用私密金鑰把紀錄寫進資料庫 |
 | `sw.js` | 讓網站沒有網路也能打開（service worker）。**新增、改名或刪除網頁用到的檔案時，要一起改裡面的 `FILES`** |
 | `manifest.webmanifest`、`icons/` | 加到主畫面時的名稱和圖示（PNG 由 `icons/icon.svg` 產生） |
 | `supabase/schema.sql` | 資料表、權限、資料檢查、統計函式 |
@@ -145,6 +146,31 @@
 **2. 放上網路（GitHub Pages，免費）**
 
 到 repo 的 **Settings → Pages**，Source 選 **Deploy from a branch**，Branch 選 `main`、資料夾選 `/ (root)`。更新網站後，使用者下次在有網路時打開，就會自動換成新版。
+
+**3. 擋機器人（Cloudflare Pages + Turnstile，免費，選用）**
+
+只在網頁加驗證擋不住機器人：公開金鑰寫在網頁裡，機器人可以跳過網頁直接寫進資料庫。所以要改成「網頁 → 伺服器程式確認驗證 → 用私密金鑰寫進資料庫」，再收回公開金鑰的寫入權限。Cloudflare 後台的按鈕名稱偶爾會改，大致照這個順序找：
+
+1. **建立 Cloudflare Pages 專案**
+   1. 到 <https://dash.cloudflare.com> 註冊並登入
+   2. 左邊選 **Workers & Pages** → **Create** → 選 **Pages** → **Connect to Git**，授權 GitHub 後選這個 repo
+   3. 設定：Framework preset 選 **None**，Build command 留空，Build output directory 填 `/`
+   4. 專案名稱會變成網址，例如填 `commute-timer` 就是 `commute-timer.pages.dev`（被用走了就換一個）
+   5. 按 **Save and Deploy**，完成後打開網址，確認網站正常
+2. **建立 Turnstile**
+   1. 左邊選 **Turnstile** → **Add widget**
+   2. Hostname 填上一步的網址，不含 `https://`，例如 `commute-timer.pages.dev`
+   3. Widget Mode 選 **Managed**
+   4. 建立後會看到兩把金鑰：**Site Key** 是公開的，填進 `config.js` 的 `TURNSTILE_SITE_KEY`；**Secret Key** 是私密的，只填在下一步，不要寫進任何檔案或貼給別人
+3. **在 Pages 專案設定環境變數**（專案的 **Settings → Variables and Secrets**，Production 環境）
+   - `SUPABASE_URL`：一般文字，填 Supabase 的 Project URL
+   - `TURNSTILE_SECRET_KEY`：選 **Secret**（加密），填 Turnstile 的 Secret Key
+   - `SUPABASE_SECRET_KEY`：選 **Secret**（加密），填 Supabase **Project Settings → API Keys** 裡的 Secret key（`sb_secret_` 開頭；舊式專案是 service_role key）。這把金鑰可以讀寫整個資料庫，只能放在這裡
+   - 設定好之後，到 **Deployments** 重新部署一次，新的設定才會生效
+4. **切換**：`config.js` 填好 `TURNSTILE_SITE_KEY`，在新網址實際送出一筆確認成功後，再收回資料庫公開金鑰的寫入權限（`schema.sql` 裡的 `revoke insert`）。順序不能反過來，否則中間這段時間大家都送不出資料
+5. **舊網址**：`config.js` 的 `MOVED_TO` 填新網址，舊網址（GitHub Pages）就會顯示搬家通知，只能查看和匯出紀錄
+
+在自己電腦測試 Turnstile，可以用 Cloudflare 提供的測試金鑰：Site key `1x00000000000000000000AA`、Secret key `1x0000000000000000000000000000000AA`（一定會通過）。
 
 ### 修改圖示
 

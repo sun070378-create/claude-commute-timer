@@ -18,6 +18,10 @@ const MODES = { walk: "步行", bike: "腳踏車", youbike: "YouBike", scooter: 
 const STATION_TYPES = ["entry", "wait", "ride", "transfer", "exit"];
 const BAND_LABELS = { peak: "平日尖峰", offpeak: "平日離峰", weekend: "假日" };
 const ONLINE = Boolean(SUPABASE_URL && SUPABASE_ANON_KEY);
+// 網站已經搬到新網址（config.js 的 MOVED_TO）時，舊網址（GitHub Pages）只保留查看和匯出紀錄：
+// 不能開始新的一趟，也不再上傳，請使用者把紀錄匯出後帶到新網址
+const MOVED = typeof MOVED_TO === "string" && MOVED_TO !== "" && location.hostname.endsWith(".github.io");
+const MOVED_TEXT = "通勤碼表搬家了！這裡的紀錄不會自動帶過去：請到「我的紀錄」按「匯出備份」，再到新網址的「我的紀錄」按「匯入備份」。還沒送出的紀錄，匯入後會在新網址自動送出。";
 
 const $ = (id) => document.getElementById(id);
 
@@ -345,6 +349,10 @@ $("save-confirm").addEventListener("click", () => {
 });
 
 function startTrip(r) {
+  if (MOVED) {
+    alert(MOVED_TEXT + "\n\n新網址：" + MOVED_TO);
+    return;
+  }
   if (r.origin === r.destination) {
     alert("起點和終點不能是同一站");
     return;
@@ -689,6 +697,11 @@ $("submit").addEventListener("click", async () => {
   $("note").value = "";
   $("note-share").checked = false;
 
+  if (MOVED) {
+    alert("這筆已經存在手機裡。" + MOVED_TEXT);
+    showView("history");
+    return;
+  }
   if (!ONLINE) {
     alert("已存到這台裝置（本機模式）");
     showView("stats");
@@ -739,19 +752,86 @@ class UploadError extends Error {
   }
 }
 
+// ---------- Turnstile（Cloudflare 的擋機器人驗證）----------
+// config.js 有填 TURNSTILE_SITE_KEY 時，紀錄不直接寫進資料庫，而是送到 /api/trips（functions/api/trips.js），
+// 由伺服器確認驗證通過後才寫入。驗證結果只能用一次、幾分鐘就過期，所以每送一筆（包括補送）都當下重新驗證。
+// 平常看不到驗證畫面；Cloudflare 覺得可疑時，畫面下方才會出現要點一下的方塊（#turnstile-box）。
+// 注意：方塊的 id 不能叫 turnstile，瀏覽器會把有 id 的元素變成同名的全域變數，蓋掉 Cloudflare 的 window.turnstile。
+const USE_TURNSTILE = typeof TURNSTILE_SITE_KEY === "string" && TURNSTILE_SITE_KEY !== "";
+let turnstileLoading = null;
+let turnstileWidget = null;
+let turnstileWaiter = null;
+
+function loadTurnstile() {
+  if (window.turnstile?.render) return Promise.resolve();
+  if (!turnstileLoading) {
+    turnstileLoading = new Promise((resolve, reject) => {
+      const s = el("script", { src: "https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit", async: true });
+      s.onload = resolve;
+      // 載入失敗（例如沒網路）就清掉，下次再試
+      s.onerror = () => { turnstileLoading = null; s.remove(); reject(new Error("load")); };
+      document.head.append(s);
+    });
+  }
+  return turnstileLoading;
+}
+
+async function turnstileToken() {
+  try {
+    await loadTurnstile();
+  } catch {
+    throw new UploadError("目前連不上網路", true);
+  }
+  return new Promise((resolve, reject) => {
+    // 需要使用者點一下時，給一分鐘；沒完成就之後再補送
+    const timer = setTimeout(() => settle(null), 60000);
+    const settle = (token) => {
+      clearTimeout(timer);
+      turnstileWaiter = null;
+      if (token) resolve(token);
+      else reject(new UploadError("驗證沒有完成", true));
+    };
+    turnstileWaiter = settle;
+    if (turnstileWidget === null) {
+      turnstileWidget = turnstile.render("#turnstile-box", {
+        sitekey: TURNSTILE_SITE_KEY,
+        execution: "execute",            // 要送出時才驗證
+        appearance: "interaction-only",  // 需要使用者操作時才顯示
+        callback: (token) => turnstileWaiter?.(token),
+        "error-callback": () => { turnstileWaiter?.(null); return true; },
+      });
+    } else {
+      turnstile.reset(turnstileWidget);
+    }
+    turnstile.execute(turnstileWidget);
+  });
+}
+
+// 伺服器程式（functions/api/trips.js）自己的錯誤代碼，訊息是中文，可以直接顯示
+const SERVER_CODES = ["TURNSTILE", "TURNSTILE_DOWN", "DB_DOWN", "CONFIG", "BAD_REQUEST"];
+
 async function insertTrip(record) {
+  // 有 Turnstile 的話先拿到驗證結果，再一起送到伺服器程式
+  const token = USE_TURNSTILE ? await turnstileToken() : null;
   // 訊號很差時可能一直等不到回應，20 秒就先放棄，之後再補送
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), 20000);
   try {
     let res;
     try {
-      res = await fetch(API_BASE + "/trips", {
-        method: "POST",
-        headers: { ...apiHeaders(), Prefer: "return=minimal" },
-        body: JSON.stringify(record),
-        signal: ctrl.signal,
-      });
+      res = USE_TURNSTILE
+        ? await fetch("api/trips", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ record, token }),
+          signal: ctrl.signal,
+        })
+        : await fetch(API_BASE + "/trips", {
+          method: "POST",
+          headers: { ...apiHeaders(), Prefer: "return=minimal" },
+          body: JSON.stringify(record),
+          signal: ctrl.signal,
+        });
     } catch {
       throw new UploadError("目前連不上網路", true);
     }
@@ -759,8 +839,8 @@ async function insertTrip(record) {
     const body = await res.json().catch(() => ({}));
     // 這筆其實之前就送到了（只是當時沒收到回應），資料庫擋下重複的這筆，當作送出成功
     if (body.code === "23505") return;
-    // 資料庫自訂的錯誤（例如「送出太頻繁了」）直接顯示中文訊息，其他的顯示狀態碼
-    const message = body.code === "P0001" ? body.message : `HTTP ${res.status}`;
+    // 資料庫自訂的錯誤（例如「送出太頻繁了」）和伺服器程式的錯誤直接顯示中文訊息，其他的顯示狀態碼
+    const message = body.code === "P0001" || SERVER_CODES.includes(body.code) ? body.message : `HTTP ${res.status}`;
     // 「送出太頻繁」「送出的人太多」是 supabase/schema.sql 裡的送出頻率限制，等一下再送就好
     const retry = res.status >= 500 || [401, 403, 404, 408, 429].includes(res.status) || /太頻繁|太多/.test(message);
     throw new UploadError(message, retry);
@@ -800,7 +880,8 @@ async function upload(r) {
     updateRecord(r.started_at, (x) => { delete x.pending; });
     return { status: "sent" };
   } catch (err) {
-    if (err.retry) return { status: "retry", message: err.message };
+    // 只有資料庫明確不接受的才放棄；其他意外的錯誤都當成之後再試，不要把紀錄標成失敗
+    if (!(err instanceof UploadError) || err.retry) return { status: "retry", message: err.message };
     updateRecord(r.started_at, (x) => { delete x.pending; x.uploadError = err.message; });
     return { status: "failed", message: err.message };
   }
@@ -809,7 +890,7 @@ async function upload(r) {
 // 一次只送一筆，因為資料庫限制同一台裝置一分鐘只能送一筆。
 // 指定 startedAt 就送那一筆（剛按送出的），沒指定就送最舊的；還有沒送的，一分鐘後再送下一筆
 async function flushPending(startedAt) {
-  if (!ONLINE) return { status: "none" };
+  if (!ONLINE || MOVED) return { status: "none" };
   if (flushing) return { status: "retry", message: "正在補送之前的紀錄" };
   const list = store.get("history", []).filter((r) => r.pending);
   const r = startedAt ? list.find((x) => x.started_at === startedAt) : list[list.length - 1];
@@ -824,7 +905,7 @@ async function flushPending(startedAt) {
 }
 
 function renderPending() {
-  const n = ONLINE ? pendingCount() : 0;
+  const n = ONLINE && !MOVED ? pendingCount() : 0;
   $("pending-banner").hidden = !n;
   $("pending-banner").textContent = `有 ${n} 筆紀錄還沒送出，連上網路後會自動補送。`;
   if (!$("view-history").hidden) renderHistory();
@@ -1118,7 +1199,7 @@ function renderHistory() {
             r.note,
           ].filter(Boolean).join("・"),
         }),
-        ...(r.pending ? [el("span", { className: "upload-status", textContent: "⏳ 還沒送出，連上網路後會自動補送" })] : []),
+        ...(r.pending ? [el("span", { className: "upload-status", textContent: MOVED ? "⏳ 還沒送出：匯出備份、到新網址匯入後就會送出" : "⏳ 還沒送出，連上網路後會自動補送" })] : []),
         ...(r.uploadError ? [el("span", { className: "upload-status error", textContent: "⚠ 沒有送出：" + r.uploadError })] : []),
       ])
     )
@@ -1252,6 +1333,15 @@ function renderPrivacy() {
 if (!ONLINE) {
   $("mode-banner").hidden = false;
   $("mode-banner").textContent = "目前是本機模式：紀錄只存在這台裝置，統計也只看得到自己的。設定資料庫後就能和大家一起統計。";
+}
+if (MOVED) {
+  $("moved-banner").hidden = false;
+  $("moved-banner").replaceChildren(
+    el("b", { textContent: "通勤碼表搬家了 → " }),
+    el("a", { href: MOVED_TO, textContent: MOVED_TO }),
+    el("br"),
+    "這裡的紀錄不會自動帶過去：請先到「我的紀錄」按「匯出備份」，再到新網址的「我的紀錄」按「匯入備份」。"
+  );
 }
 renderSaved();
 showView("record");
