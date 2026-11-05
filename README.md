@@ -119,9 +119,10 @@
 | `stations.js` | 路線與車站清單 |
 | `config.js` | 資料庫網址、公開金鑰、聯絡 email |
 | `sw.js` | 讓網站沒有網路也能打開（service worker）。**新增、改名或刪除網頁用到的檔案時，要一起改裡面的 `FILES`** |
-| `manifest.webmanifest`、`icons/` | 加到主畫面時的名稱和圖示 |
+| `manifest.webmanifest`、`icons/` | 加到主畫面時的名稱和圖示（PNG 由 `icons/icon.svg` 產生） |
 | `supabase/schema.sql` | 資料表、權限、資料檢查、統計函式 |
 | `scripts/check-stations.js` | 檢查資料庫的車站清單和 `stations.js` 是否一致 |
+| `scripts/export-icons.js` | 由 `icons/icon.svg` 產生各尺寸的 PNG 圖示（需要 Playwright） |
 | `CLAUDE.md` | 給 AI agent 看的專案索引 |
 | `LICENSE` | 程式碼授權（AGPL-3.0） |
 
@@ -144,6 +145,10 @@
 **2. 放上網路（GitHub Pages，免費）**
 
 到 repo 的 **Settings → Pages**，Source 選 **Deploy from a branch**，Branch 選 `main`、資料夾選 `/ (root)`。更新網站後，使用者下次在有網路時打開，就會自動換成新版。
+
+### 修改圖示
+
+改 `icons/icon.svg`，再執行 `node scripts/export-icons.js` 產生各尺寸的 PNG。已經加到主畫面的圖示不一定會自動更新：Android 通常幾天內會換成新的，iPhone 要刪掉後重新加入。
 
 ### 新增或修改車站
 
