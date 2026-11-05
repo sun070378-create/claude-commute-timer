@@ -394,3 +394,12 @@ h3 { font-size: 16px; margin: 28px 0 8px; }
 .client-id code, .hint code { padding: 2px 6px; background: var(--card); border: 1px solid var(--line); border-radius: 6px; user-select: all; }
 .site-footer { max-width: 520px; margin: 0 auto; padding: 8px 16px 32px; text-align: center; font-size: 13px; color: var(--muted); }
 .license-note { margin-top: 4px; }
+
+/* 統計頁的名詞說明與輕軌提醒 */
+.glossary { margin: -4px 0 16px; font-size: 14px; }
+.glossary summary { cursor: pointer; color: var(--primary); }
+.glossary dl { margin: 8px 0 0; padding: 10px 12px; background: var(--card); border: 1px solid var(--line); border-radius: 10px; }
+.glossary dt { font-weight: 600; }
+.glossary dd { margin: 0 0 8px; color: var(--muted); }
+.glossary dd:last-child { margin-bottom: 0; }
+.lrt-note { margin: 4px 0 0; font-size: 13px; }
