@@ -2,7 +2,7 @@
 
 給 agent 的開發注意事項。專案介紹、功能、檔案說明、架設步驟都在 `README.md`（後半的「給開發者」），這裡只補 README 沒寫、改程式時容易踩到的地方。
 
-> **跨專案的共通慣例、待辦和工作環境說明**在私人 repo [`sun070378-create/control-claude-projects`](https://github.com/sun070378-create/control-claude-projects) 的 `CLAUDE.md`（總索引）。如果它還不在工作環境裡，開始工作前先把它加進來讀；這份只寫這個專案自己的事。
+> **跨專案的共通慣例、待辦和工作環境說明**在 Jason 的私人總索引 repo 的 `CLAUDE.md`（名稱不寫在公開的地方）。開始工作前，如果工作環境裡還沒有它，從 Jason 可存取的 repo 清單找出總索引加進來讀，找不到就問 Jason；這份只寫這個專案自己的事。
 
 ## app.js 重點函式
 
