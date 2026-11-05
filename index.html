@@ -6,6 +6,10 @@
   <meta name="theme-color" content="#1f2a33">
   <title>通勤碼表</title>
   <link rel="stylesheet" href="style.css">
+  <!-- 加入主畫面時的名稱和圖示 -->
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
 </head>
 <body>
   <header class="topbar">
@@ -19,6 +23,7 @@
 
   <main>
     <p id="mode-banner" class="banner" hidden></p>
+    <p id="pending-banner" class="banner" hidden></p>
 
     <!-- ===== 記錄：一、設定起訖點 ===== -->
     <section id="view-setup" class="view">
@@ -149,6 +154,16 @@
       <div id="my-band" class="chips"></div>
       <div id="my-stats"></div>
       <p class="hint">你的裝置代碼：<code id="my-client-id"></code>（申請刪除上傳過的資料時使用）</p>
+
+      <h3>備份紀錄</h3>
+      <p class="hint">紀錄只存在這個瀏覽器裡，清除瀏覽器資料、換手機，或 iPhone 的 Safari 一段時間沒打開本站，都可能讓紀錄消失，建議偶爾匯出備份。換手機時在新手機匯入，會沿用原本的裝置代碼；iPhone 加入主畫面後，主畫面和 Safari 的紀錄是分開的，也可以用匯出、匯入帶過去。</p>
+      <div class="backup-actions">
+        <button id="export-backup" class="small-btn" type="button">匯出備份</button>
+        <button id="import-backup" class="small-btn secondary" type="button">匯入備份</button>
+        <input id="import-file" type="file" accept=".json,application/json" hidden>
+      </div>
+      <p id="backup-msg" class="hint" aria-live="polite"></p>
+
       <h3>每一筆紀錄</h3>
       <ol id="history-list" class="history"></ol>
     </section>
@@ -165,7 +180,7 @@
       </p>
 
       <h3>會上傳哪些資料</h3>
-      <p>按下「送出」時，只會上傳下列資料：</p>
+      <p>按下「送出」時（沒有網路的話，會先存在手機，連上網路後自動補送），只會上傳下列資料：</p>
       <ul>
         <li>起點站、終點站、轉乘站</li>
         <li>每一段（進站、等車、乘車、轉乘、出站）花了幾秒，以及轉乘次數</li>
@@ -181,7 +196,7 @@
         <li>精確到秒的時刻</li>
         <li>沒有勾選上傳的備註，以及你存的常用路線</li>
       </ul>
-      <p>這些資料和你完整的個人紀錄，只存在這支手機的瀏覽器裡，清除瀏覽器資料就會刪除。本站不放廣告、不做追蹤分析，也不收集你的位置。</p>
+      <p>這些資料和你完整的個人紀錄，只存在這支手機的瀏覽器裡，清除瀏覽器資料就會刪除。你可以在「我的紀錄」匯出備份檔，備份檔只會存在你自己選的地方，本站收不到。本站不放廣告、不做追蹤分析，也不收集你的位置。</p>
 
       <h3>資料用途與公開方式</h3>
       <ul>
@@ -209,7 +224,7 @@
         </li>
         <li id="contact-email-item" hidden>Email：<a id="contact-email"></a></li>
       </ul>
-      <p class="hint">裝置代碼只存在這支手機上。清除瀏覽器資料或換手機後會產生新的代碼，舊的就找不回來，請先記下來。</p>
+      <p class="hint">裝置代碼只存在這支手機上。清除瀏覽器資料或換手機後會產生新的代碼，舊的就找不回來，請先記下來，或在「我的紀錄」匯出備份，換手機時匯入就能沿用。</p>
 
       <h3>原始碼</h3>
       <p>

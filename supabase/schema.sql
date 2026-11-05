@@ -350,6 +350,14 @@ where extract(second from started_at) <> 0
    or access_mode is not null
    or egress_mode is not null;
 
+-- 同一台裝置、同一個出發時刻只能有一筆。
+-- 網路不穩時，網頁會自動重送沒收到回應的紀錄；如果其實已經送到了，重送的那筆會被擋下，不會重複計算。
+-- 舊資料如果因為重按送出而重複，只保留最早的那一筆（同一台裝置不可能在同一分鐘出發兩趟）。
+delete from public.trips a
+  using public.trips b
+  where a.client_id = b.client_id and a.started_at = b.started_at and a.id > b.id;
+create unique index if not exists trips_client_started_key on public.trips (client_id, started_at);
+
 -- 統計結果：在資料庫裡先算好，網站只下載結果（每次幾 KB，而不是整包原始資料）。
 -- time_band 為 'all' 的那一列是不分時段的合計。
 -- 隱私門檻：同一條路線、同一時段有 5 個以上不同的裝置才顯示，
