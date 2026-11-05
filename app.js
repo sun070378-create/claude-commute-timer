@@ -114,6 +114,9 @@ document.querySelectorAll(".tab").forEach((t) => t.addEventListener("click", () 
 // =========================================================
 // 一、設定起訖點
 // =========================================================
+// 只有輕軌經過的站（沒有閘門）。紅樹林、十四張這種和捷運共用的站看不出從哪一邊進站，所以不算
+const isLrtOnly = (name) => STATION_LINES.has(name) && STATION_LINES.get(name).every((l) => l.lrt);
+
 // 每個站經過哪些路線，例如 "紅樹林" → [綠山線, 淡水信義線]
 const STATION_LINES = new Map();
 for (const line of LINES) {
@@ -823,6 +826,16 @@ function selectPair(o, d) {
 $("stats-pair").addEventListener("change", renderStats);
 $("stats-band").addEventListener("change", renderStats);
 
+// 起點或終點是輕軌站時，提醒那一端沒有閘門
+function lrtNote(origin, destination) {
+  const lrt = [origin, destination].filter(isLrtOnly);
+  if (!lrt.length) return [];
+  return [el("p", {
+    className: "hint lrt-note",
+    textContent: `※ ${lrt.join("、")}是輕軌站，沒有閘門，進出站是從月台旁感應票卡處算起，所以通常只有幾秒。`,
+  })];
+}
+
 function renderStats() {
   const body = $("stats-body");
   const minNote = ONLINE ? "為了保護個人隱私，有 5 人以上記錄的路線和時段才會顯示（同一個人記很多筆也只算 1 人）。" : "";
@@ -865,6 +878,7 @@ function renderStats() {
       className: "stat-sub gate-line",
       textContent: `閘門到閘門中位數 ${fmtMin(r.gate_p50)}（${fmtMin(r.gate_p25)} ～ ${fmtMin(r.gate_p75)}・${r.gate_n} 筆有記錄進出站）`,
     })] : []),
+    ...(hasGate ? lrtNote(r.origin, r.destination) : []),
     bar,
     el("div", { className: "stat-sub", textContent: "各段中位數" }),
     legend,
