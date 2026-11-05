@@ -8,6 +8,7 @@
   --primary: #1f6feb;
   --primary-text: #ffffff;
   --danger: #c93c37;
+  --warn: #8a6d00;   /* 還沒送出的紀錄 */
   /* 三種時間的顏色：等車、乘車、轉乘 */
   --wait: #e8a33d;
   --ride: #3b82c4;
@@ -23,6 +24,8 @@
     --muted: #96a1ab;
     --line: #2f3943;
     --primary: #4c8df6;
+    --danger: #ef6b66;
+    --warn: #e0b84a;
   }
 }
 
@@ -403,3 +406,9 @@ h3 { font-size: 16px; margin: 28px 0 8px; }
 .glossary dd { margin: 0 0 8px; color: var(--muted); }
 .glossary dd:last-child { margin-bottom: 0; }
 .lrt-note { margin: 4px 0 0; font-size: 13px; }
+
+/* 我的紀錄：還沒送出、沒有送出的標示，以及備份按鈕 */
+.history .upload-status { display: block; font-size: 13px; color: var(--warn); }
+.history .upload-status.error { color: var(--danger); }
+.backup-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0; }
+.small-btn.secondary { color: var(--primary); background: var(--card); border: 1px solid var(--line); }

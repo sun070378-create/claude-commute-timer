@@ -1,0 +1,17 @@
+{
+  "id": "./",
+  "name": "通勤碼表",
+  "short_name": "通勤碼表",
+  "description": "記錄搭捷運、輕軌時的進站、等車、乘車、轉乘、出站時間，一起統計真實的通勤時間。",
+  "lang": "zh-Hant-TW",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f5f6f7",
+  "theme_color": "#1f2a33",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

@@ -673,30 +673,41 @@ function renderSummary() {
 $("submit").addEventListener("click", async () => {
   const r = buildRecord(trip);
   r.note = $("note").value.trim() || null;
-  $("submit").disabled = true;
-  $("submit-msg").textContent = "送出中…";
-  try {
-    if (ONLINE) await insertTrip(toUpload(r, $("note-share").checked));
-    const stations = trip.transferInfo.map((i) => i.station);
-    if (stations.length && stations.every(Boolean)) {
-      const m = store.get("lastTransfers", {});
-      m[pairKey(r.origin, r.destination)] = stations;
-      store.set("lastTransfers", m);
-    }
-    const history = store.get("history", []);
-    history.unshift(r);
-    store.set("history", history.slice(0, 500));
-    trip = null;
-    saveTrip();
-    $("note").value = "";
-    $("note-share").checked = false;
-    alert(ONLINE ? "已送出，謝謝你提供數據！同一條路線累積 5 人以上，就會出現在統計頁。" : "已存到這台裝置（本機模式）");
+  // 先存進手機再上傳：送不出去也不會不見，連上網路後會自動補送（見下面的「還沒送出的紀錄」）
+  if (ONLINE) r.pending = toUpload(r, $("note-share").checked);
+  const stations = trip.transferInfo.map((i) => i.station);
+  if (stations.length && stations.every(Boolean)) {
+    const m = store.get("lastTransfers", {});
+    m[pairKey(r.origin, r.destination)] = stations;
+    store.set("lastTransfers", m);
+  }
+  const history = store.get("history", []);
+  history.unshift(r);
+  store.set("history", history.slice(0, 500));
+  trip = null;
+  saveTrip();
+  $("note").value = "";
+  $("note-share").checked = false;
+
+  if (!ONLINE) {
+    alert("已存到這台裝置（本機模式）");
     showView("stats");
     selectPair(r.origin, r.destination);
-  } catch (err) {
-    $("submit").disabled = false;
-    $("submit-msg").textContent = "送出失敗，請稍後再試：" + err.message;
+    return;
   }
+  $("submit").disabled = true;
+  $("submit-msg").textContent = "送出中…";
+  const result = await flushPending(r.started_at);
+  if (result.status === "sent") {
+    alert("已送出，謝謝你提供數據！同一條路線累積 5 人以上，就會出現在統計頁。");
+    showView("stats");
+    selectPair(r.origin, r.destination);
+    return;
+  }
+  alert(result.status === "failed"
+    ? `這筆沒有被資料庫接受：${result.message}。紀錄仍保存在「我的紀錄」。`
+    : "這筆已經先存在手機裡，稍後會自動補送。" + (result.message ? `（${result.message}）` : ""));
+  showView("history");
 });
 
 $("discard").addEventListener("click", () => {
@@ -719,18 +730,111 @@ function apiHeaders() {
   return headers;
 }
 
-async function insertTrip(record) {
-  const res = await fetch(API_BASE + "/trips", {
-    method: "POST",
-    headers: { ...apiHeaders(), Prefer: "return=minimal" },
-    body: JSON.stringify(record),
-  });
-  if (!res.ok) {
-    // 資料庫自訂的錯誤（例如「送出太頻繁了」）直接顯示中文訊息，其他的顯示狀態碼
-    const body = await res.json().catch(() => ({}));
-    throw new Error(body.code === "P0001" ? body.message : `HTTP ${res.status}`);
+// 上傳失敗的原因。retry 是 true 的（連不上網路、伺服器忙碌、送得太頻繁）之後再送就好；
+// false 的是資料本身不被資料庫接受，再送幾次都一樣
+class UploadError extends Error {
+  constructor(message, retry) {
+    super(message);
+    this.retry = retry;
   }
 }
+
+async function insertTrip(record) {
+  // 訊號很差時可能一直等不到回應，20 秒就先放棄，之後再補送
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 20000);
+  try {
+    let res;
+    try {
+      res = await fetch(API_BASE + "/trips", {
+        method: "POST",
+        headers: { ...apiHeaders(), Prefer: "return=minimal" },
+        body: JSON.stringify(record),
+        signal: ctrl.signal,
+      });
+    } catch {
+      throw new UploadError("目前連不上網路", true);
+    }
+    if (res.ok) return;
+    const body = await res.json().catch(() => ({}));
+    // 這筆其實之前就送到了（只是當時沒收到回應），資料庫擋下重複的這筆，當作送出成功
+    if (body.code === "23505") return;
+    // 資料庫自訂的錯誤（例如「送出太頻繁了」）直接顯示中文訊息，其他的顯示狀態碼
+    const message = body.code === "P0001" ? body.message : `HTTP ${res.status}`;
+    // 「送出太頻繁」「送出的人太多」是 supabase/schema.sql 裡的送出頻率限制，等一下再送就好
+    const retry = res.status >= 500 || [401, 403, 404, 408, 429].includes(res.status) || /太頻繁|太多/.test(message);
+    throw new UploadError(message, retry);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+// =========================================================
+// 還沒送出的紀錄：先存在手機，連上網路後自動補送
+// =========================================================
+// 紀錄都存在「我的紀錄」（history）裡：r.pending 是要上傳的內容，送出後就刪掉。
+// 資料庫不接受的改記在 r.uploadError，紀錄本身仍留在手機。
+let flushing = false;
+let flushTimer = null;
+
+const pendingCount = () => store.get("history", []).filter((r) => r.pending).length;
+
+// 用出發時刻找到那一筆來修改。每次都重新讀取，才不會蓋掉這段時間新存進來的紀錄
+function updateRecord(startedAt, change) {
+  const history = store.get("history", []);
+  const r = history.find((x) => x.started_at === startedAt);
+  if (!r) return;
+  change(r);
+  store.set("history", history);
+}
+
+async function upload(r) {
+  // 資料庫不收出發超過兩天的紀錄，就不用送了
+  if (Date.now() - Date.parse(r.started_at) > 47 * 3600 * 1000) {
+    const message = "超過兩天沒有送出，資料庫不收太舊的紀錄";
+    updateRecord(r.started_at, (x) => { delete x.pending; x.uploadError = message; });
+    return { status: "failed", message };
+  }
+  try {
+    await insertTrip(r.pending);
+    updateRecord(r.started_at, (x) => { delete x.pending; });
+    return { status: "sent" };
+  } catch (err) {
+    if (err.retry) return { status: "retry", message: err.message };
+    updateRecord(r.started_at, (x) => { delete x.pending; x.uploadError = err.message; });
+    return { status: "failed", message: err.message };
+  }
+}
+
+// 一次只送一筆，因為資料庫限制同一台裝置一分鐘只能送一筆。
+// 指定 startedAt 就送那一筆（剛按送出的），沒指定就送最舊的；還有沒送的，一分鐘後再送下一筆
+async function flushPending(startedAt) {
+  if (!ONLINE) return { status: "none" };
+  if (flushing) return { status: "retry", message: "正在補送之前的紀錄" };
+  const list = store.get("history", []).filter((r) => r.pending);
+  const r = startedAt ? list.find((x) => x.started_at === startedAt) : list[list.length - 1];
+  if (!r) return { status: "none" };
+  flushing = true;
+  clearTimeout(flushTimer);
+  const result = navigator.onLine === false ? { status: "retry", message: "目前沒有網路" } : await upload(r);
+  flushing = false;
+  if (pendingCount()) flushTimer = setTimeout(() => flushPending(), result.status === "failed" ? 1000 : 61000);
+  renderPending();
+  return result;
+}
+
+function renderPending() {
+  const n = ONLINE ? pendingCount() : 0;
+  $("pending-banner").hidden = !n;
+  $("pending-banner").textContent = `有 ${n} 筆紀錄還沒送出，連上網路後會自動補送。`;
+  if (!$("view-history").hidden) renderHistory();
+}
+
+// 恢復連線、或從別的 App 切回來時，試著補送
+window.addEventListener("online", () => flushPending());
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden) flushPending();
+});
 
 // 統計結果的格式：每條路線每個時段一列，time_band 為 "all" 的是不分時段的合計
 async function fetchStats() {
@@ -915,10 +1019,7 @@ $("export").addEventListener("click", () => {
     ...stats.map((t) => [...cols.map((c) => esc(t[c])), esc("CC BY-SA 4.0"), esc(source)].join(",")),
   ].join("\n");
   // 開頭加 BOM，Excel 打開中文才不會亂碼
-  const blob = new Blob(["\ufeff" + csv], { type: "text/csv" });
-  const a = el("a", { href: URL.createObjectURL(blob), download: "commute-stats_CC-BY-SA-4.0.csv" });
-  a.click();
-  URL.revokeObjectURL(a.href);
+  download(new Blob(["\ufeff" + csv], { type: "text/csv" }), "commute-stats_CC-BY-SA-4.0.csv");
 });
 
 // =========================================================
@@ -1017,9 +1118,112 @@ function renderHistory() {
             r.note,
           ].filter(Boolean).join("・"),
         }),
+        ...(r.pending ? [el("span", { className: "upload-status", textContent: "⏳ 還沒送出，連上網路後會自動補送" })] : []),
+        ...(r.uploadError ? [el("span", { className: "upload-status error", textContent: "⚠ 沒有送出：" + r.uploadError })] : []),
       ])
     )
   );
+}
+
+// =========================================================
+// 備份：匯出、匯入我的紀錄
+// =========================================================
+// 紀錄只存在這個瀏覽器裡，清除瀏覽器資料、換手機就會不見，所以讓使用者自己存一份備份檔。
+// 備份檔包含完整的個人紀錄（含沒有上傳的到站／離站和備註）、常用路線、記住的轉乘站和裝置代碼。
+function download(blob, filename) {
+  const a = el("a", { href: URL.createObjectURL(blob), download: filename });
+  a.click();
+  // 太快收回網址，有些手機會下載失敗，所以等一下再收
+  setTimeout(() => URL.revokeObjectURL(a.href), 60000);
+}
+
+$("export-backup").addEventListener("click", () => {
+  const history = store.get("history", []);
+  const data = {
+    app: "通勤碼表",
+    version: 1,
+    exported_at: new Date().toISOString(),
+    clientId: clientId(),
+    history,
+    savedRoutes: store.get("savedRoutes", []),
+    lastTransfers: store.get("lastTransfers", {}),
+  };
+  // 檔名用台北的日期，例如 2026-11-05（瑞典的日期格式剛好是這個樣子）
+  const date = new Date().toLocaleDateString("sv-SE", { timeZone: "Asia/Taipei" });
+  download(new Blob([JSON.stringify(data)], { type: "application/json" }), `commute-timer-backup_${date}.json`);
+  $("backup-msg").textContent = `已匯出 ${history.length} 筆紀錄。備份檔裡有你完整的紀錄和備註，請自己保管，不要公開。`;
+});
+
+$("import-backup").addEventListener("click", () => $("import-file").click());
+
+$("import-file").addEventListener("change", async () => {
+  const file = $("import-file").files[0];
+  $("import-file").value = ""; // 清掉，同一個檔案才能再選一次
+  if (!file) return;
+  let data = null;
+  try {
+    data = JSON.parse(await file.text());
+  } catch { /* 不是 JSON，下面會顯示錯誤 */ }
+  if (!data || data.app !== "通勤碼表" || !Array.isArray(data.history)) {
+    alert("這不是通勤碼表的備份檔");
+    return;
+  }
+  const result = importBackup(data);
+  renderSaved();
+  renderPending();
+  renderHistory();
+  flushPending(); // 備份裡如果有還沒送出的紀錄，接著補送
+  $("backup-msg").textContent = [
+    `匯入了 ${result.added} 筆紀錄`,
+    result.skipped && `${result.skipped} 筆已經有了，沒有重複加入`,
+    result.invalid && `${result.invalid} 筆格式不對，略過`,
+    result.dropped && `超過 500 筆，只保留最新的 500 筆`,
+    result.adoptedId && "並沿用備份裡的裝置代碼",
+  ].filter(Boolean).join("，") + "。";
+});
+
+// 把備份合併進這台裝置的資料：已經有的紀錄（出發時刻相同）不會重複加入
+function importBackup(data) {
+  const valid = (r) => r && typeof r.origin === "string" && typeof r.destination === "string"
+    && !isNaN(Date.parse(r.started_at)) && Number.isFinite(r.total_sec) && Array.isArray(r.segments);
+  const history = store.get("history", []);
+  const hadRecords = history.length > 0;
+  const have = new Set(history.map((r) => r.started_at));
+  let added = 0, skipped = 0, invalid = 0;
+  for (const r of data.history) {
+    if (!valid(r)) invalid++;
+    else if (have.has(r.started_at)) skipped++;
+    else {
+      history.push(r);
+      have.add(r.started_at);
+      added++;
+    }
+  }
+  history.sort((a, b) => Date.parse(b.started_at) - Date.parse(a.started_at)); // 新的在前面
+  store.set("history", history.slice(0, 500));
+
+  // 這台裝置還沒有任何紀錄（例如換了新手機），就沿用備份裡的裝置代碼，申請刪除資料時才對得上
+  const adoptedId = !hadRecords && typeof data.clientId === "string" && /^[\w-]{1,64}$/.test(data.clientId);
+  if (adoptedId) store.set("clientId", data.clientId);
+
+  // 常用路線：名稱和起訖站都一樣的不重複加；車站清單裡沒有的站就跳過
+  const saved = store.get("savedRoutes", []);
+  const routeKey = (s) => [s.name, s.origin, s.destination].join("\n");
+  const savedKeys = new Set(saved.map(routeKey));
+  for (const s of Array.isArray(data.savedRoutes) ? data.savedRoutes : []) {
+    if (s && typeof s.name === "string" && STATION_LINES.has(s.origin) && STATION_LINES.has(s.destination)
+      && !savedKeys.has(routeKey(s))) {
+      saved.push(s);
+      savedKeys.add(routeKey(s));
+    }
+  }
+  store.set("savedRoutes", saved);
+
+  // 記住的轉乘站：這台裝置已經有的路線以這台的為準
+  if (data.lastTransfers && typeof data.lastTransfers === "object") {
+    store.set("lastTransfers", { ...data.lastTransfers, ...store.get("lastTransfers", {}) });
+  }
+  return { added, skipped, invalid, dropped: Math.max(0, history.length - 500), adoptedId };
 }
 
 // =========================================================
@@ -1051,3 +1255,10 @@ if (!ONLINE) {
 }
 renderSaved();
 showView("record");
+renderPending();
+flushPending();
+
+// 沒有網路也能打開網站：註冊 service worker（sw.js）。直接雙擊 index.html（file://）時不能用，也不需要
+if ("serviceWorker" in navigator && location.protocol !== "file:") {
+  navigator.serviceWorker.register("sw.js").catch(() => { /* 註冊失敗就照常上網使用 */ });
+}
