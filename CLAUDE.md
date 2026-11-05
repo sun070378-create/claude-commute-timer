@@ -2,6 +2,8 @@
 
 給 agent 的開發注意事項。專案介紹、功能、檔案說明、架設步驟都在 `README.md`（後半的「給開發者」），這裡只補 README 沒寫、改程式時容易踩到的地方。
 
+> **跨專案的共通慣例、待辦和工作環境說明**在私人 repo [`sun070378-create/control-claude-projects`](https://github.com/sun070378-create/control-claude-projects) 的 `CLAUDE.md`（總索引）。如果它還不在工作環境裡，開始工作前先把它加進來讀；這份只寫這個專案自己的事。
+
 ## app.js 重點函式
 
 - 碼表：`startTrip`、`press`（切換階段）、`actionsFor`、`currentPhase`、`segmentsOf`、`tick`
@@ -29,10 +31,10 @@
 - **新增、改名或刪除網頁用到的檔案**：同步改 `sw.js` 的 `FILES`（漏改時網站仍可用，但離線開啟會失效）。
 - **改圖示**：改 `icons/icon.svg` → `node scripts/export-icons.js`（需要 Playwright）。maskable 版內容縮到 0.86 倍，Android 圓形裁切時不會切到。
 - **改資料庫錯誤訊息**：`insertTrip` 用訊息裡的「太頻繁」「太多」判斷可以重送，改 `trips_before_insert` 的頻率限制訊息時要一起改。
-- **localStorage**：和同網域的其他 GitHub Pages 專案共用（`sun070378-create.github.io`），新增 key 時避免撞名（目前已知的：`webquest-progress`、`note`、`theme`）。
+- **localStorage**：和同網域的其他 GitHub Pages 專案共用（`sun070378-create.github.io`）。新增 key 前先看總索引的 key 清單避免撞名，新增後也要更新那份清單。
 
 ## 慣例
 
-- commit 訊息、文件、介面文字都用繁體中文。
-- 開 feature branch，用 PR 合併到 main。
+語言、PR 流程等共通慣例見總索引。這個專案另外要注意：
+
 - 動到 `schema.sql` 的 PR，要在說明裡寫清楚「先執行 SQL 再合併」或「合併後再執行 SQL」。
