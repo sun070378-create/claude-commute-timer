@@ -9,6 +9,8 @@
 - 碼表：`startTrip`、`press`（切換階段）、`actionsFor`、`currentPhase`、`segmentsOf`、`tick`
 - 紀錄：`buildRecord`、`toUpload`（上傳最小化）、`insertTrip`（失敗丟 `UploadError`，`retry` = 之後重送就好）
 - 補送：送出時先存進 history，`r.pending` = 待上傳內容，被拒絕則改記 `r.uploadError`。`flushPending`（一次一筆，最舊的先送，間隔 61 秒，配合每分鐘一筆的頻率限制）、`upload`（超過 47 小時不送）、`renderPending`（上方橫幅）；`online`、`visibilitychange`、啟動時觸發
+- Turnstile（`config.js` 的 `TURNSTILE_SITE_KEY` 有填才啟用）：`insertTrip` 改送 `api/trips`（`functions/api/trips.js`，Cloudflare Pages Function），每筆都用 `turnstileToken()` 重新驗證（結果只能用一次）；`loadTurnstile` 要送出時才載入腳本。驗證方塊的 id 是 `turnstile-box`，**不能叫 `turnstile`**（有 id 的元素會變成同名全域變數，蓋掉 `window.turnstile`）
+- 搬家模式 `MOVED`：`MOVED_TO` 有填且網址是 `*.github.io` 時，顯示搬家通知、不能開始新的一趟、不補送，只能查看和匯出
 - 備份：`download`、匯出按鈕（history、savedRoutes、lastTransfers、clientId）、`importBackup`（依 `started_at` 去重；這台沒有紀錄才沿用備份的 clientId）
 - 統計：`fetchStats` / `loadStats`（呼叫 RPC `trip_stats`）、`computeStats`（本機模式）、`renderStats`、`lrtNote`
 - 個人：`renderMyStats`（同起訖點依走法比較）、`variantOf`、`renderHistory`、`renderPrivacy`
