@@ -50,17 +50,14 @@ begin
   end loop;
 
   -- 限制 segments 的格式與大小，避免有人塞進超大的資料填滿空間。
-  -- 最多 10 次轉乘：進站 1 + 等車乘車 22 + 轉乘 10 + 出站 1 = 34 段
-  if not exists (
-    select 1 from pg_constraint
-    where conrelid = 'public.trips'::regclass and conname = 'trips_segments_shape'
-  ) then
-    alter table public.trips add constraint trips_segments_shape check (
-      jsonb_typeof(segments) = 'array'
-      and jsonb_array_length(segments) <= 40
-      and pg_column_size(segments) < 8000
-    );
-  end if;
+  -- 最多 10 次轉乘：進站 1 + 每趟車的等車、在車上等發車、乘車 3×11 + 轉乘 10 + 出站 1 = 45 段
+  -- 每次執行都重建，上限調整時線上資料庫才會跟著更新
+  alter table public.trips drop constraint if exists trips_segments_shape;
+  alter table public.trips add constraint trips_segments_shape check (
+    jsonb_typeof(segments) = 'array'
+    and jsonb_array_length(segments) <= 50
+    and pg_column_size(segments) < 8000
+  );
 end;
 $$;
 
@@ -274,7 +271,7 @@ begin
     -- 舊版網頁可能還會送到站／離站，直接丟掉
     continue when e->>'type' in ('access', 'egress');
     if jsonb_typeof(e) is distinct from 'object'
-       or coalesce(e->>'type', '') not in ('entry', 'wait', 'ride', 'transfer', 'exit')
+       or coalesce(e->>'type', '') not in ('entry', 'wait', 'board', 'ride', 'transfer', 'exit')
        or jsonb_typeof(e->'sec') is distinct from 'number'
        or (e->>'sec')::numeric not between 0 and 14400 then
       raise exception '紀錄格式不正確';
@@ -296,7 +293,8 @@ begin
   new.segments := cleaned;
 
   select
-    coalesce(sum((x->>'sec')::integer) filter (where x->>'type' = 'wait'), 0),
+    -- board（在車上等發車）也算等車，乘車只算真正行駛的時間
+    coalesce(sum((x->>'sec')::integer) filter (where x->>'type' in ('wait', 'board')), 0),
     coalesce(sum((x->>'sec')::integer) filter (where x->>'type' = 'ride'), 0),
     coalesce(sum((x->>'sec')::integer) filter (where x->>'type' = 'transfer'), 0),
     count(*) filter (where x->>'type' = 'transfer'),
