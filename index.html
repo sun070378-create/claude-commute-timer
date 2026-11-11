@@ -22,6 +22,7 @@
   </header>
 
   <main>
+    <p id="moved-banner" class="banner moved" hidden></p>
     <p id="mode-banner" class="banner" hidden></p>
     <p id="pending-banner" class="banner" hidden></p>
 
@@ -265,6 +266,9 @@
     <input id="picker-search" class="picker-search" type="search" placeholder="搜尋站名，例如：紅樹林" autocomplete="off">
     <div id="picker-body" class="picker-body"></div>
   </dialog>
+
+  <!-- Turnstile（擋機器人的驗證）：平常看不到，Cloudflare 覺得可疑時才會在畫面下方出現 -->
+  <div id="turnstile-box" class="turnstile-box"></div>
 
   <script src="config.js"></script>
   <script src="stations.js"></script>

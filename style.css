@@ -412,3 +412,8 @@ h3 { font-size: 16px; margin: 28px 0 8px; }
 .history .upload-status.error { color: var(--danger); }
 .backup-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0; }
 .small-btn.secondary { color: var(--primary); background: var(--card); border: 1px solid var(--line); }
+
+/* 搬家通知、Turnstile 驗證方塊 */
+.banner.moved { background: #e3f0ff; color: #12395f; margin-bottom: 12px; }
+.banner.moved a { color: inherit; font-weight: 600; word-break: break-all; }
+.turnstile-box { position: fixed; left: 50%; bottom: 16px; transform: translateX(-50%); z-index: 10; }
